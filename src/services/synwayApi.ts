@@ -59,10 +59,21 @@ export async function getSmsByPort(
   return parseSmsContent(result.content, port);
 }
 
-export async function getAllSms(config: SynwayConfig, totalPorts = 32) {
+export async function getAllSms(
+  config: SynwayConfig,
+  totalPorts = 32,
+  onProgress?: (current: number, total: number) => void,
+  shouldCancel?: () => boolean
+) {
   const all: SynwaySmsMessage[] = [];
 
   for (let port = 0; port < totalPorts; port += 1) {
+    if (shouldCancel?.()) {
+      throw new Error("SCAN_CANCELED");
+    }
+
+    onProgress?.(port + 1, totalPorts);
+
     const items = await getSmsByPort(config, port);
     all.push(...items);
   }
@@ -151,17 +162,12 @@ export function buildDashboardPorts(
       state = "active";
     }
 
-    const phoneNumber =
-      portMessages.find((m) => m.simNumber && m.simNumber !== "-1")?.simNumber ??
-      null;
-
     return {
       port: portState.port,
       stateCode: portState.stateCode,
       state,
       smsCount: portMessages.length,
-      lastTime: portMessages[0]?.dateTime,
-      phoneNumber
+      lastTime: portMessages[0]?.dateTime
     };
   });
 }

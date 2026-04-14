@@ -5,6 +5,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
     name: "Synway SMS Monitor",
     version: "0.1.0"
   },
+  settings: {
+    load: () => ipcRenderer.invoke("settings:load"),
+    save: (settings) => ipcRenderer.invoke("settings:save", settings)
+  },
+  exportData: {
+    messagesCsv: (messages) => ipcRenderer.invoke("export:messages-csv", messages)
+  },
   synway: {
     testConnection: (config) => ipcRenderer.invoke("synway:test-connection", config),
     getPortInfo: (config) => ipcRenderer.invoke("synway:get-port-info", config),

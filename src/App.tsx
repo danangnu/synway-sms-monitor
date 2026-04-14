@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Avatar,
@@ -12,6 +12,7 @@ import {
   Divider,
   Drawer,
   InputBase,
+  LinearProgress,
   List,
   ListItemButton,
   ListItemIcon,
@@ -117,6 +118,38 @@ function App() {
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorText, setErrorText] = useState("");
+  const [successText, setSuccessText] = useState("");
+  const [scanProgress, setScanProgress] = useState(0);
+  const [scanCurrent, setScanCurrent] = useState(0);
+  const [scanTotal, setScanTotal] = useState(0);
+  const cancelScanRef = useRef(false);
+  const [isCanceled, setIsCanceled] = useState(false);
+
+  useEffect(() => {
+    async function loadSavedSettings() {
+      try {
+        const saved = await window.electronAPI.settings.load();
+        if (saved) {
+          setConfig(saved);
+        }
+      } catch (error) {
+        console.error("Failed to load saved settings", error);
+      }
+    }
+
+    loadSavedSettings();
+  }, []);
+
+  useEffect(() => {
+    if (!errorText && !successText) return;
+
+    const timer = window.setTimeout(() => {
+      setErrorText("");
+      setSuccessText("");
+    }, 4000);
+
+    return () => window.clearTimeout(timer);
+  }, [errorText, successText]);
 
   function handlePortClick(portNumber: number) {
     const nextPort = selectedPortFilter === portNumber ? null : portNumber;
@@ -160,10 +193,14 @@ function App() {
   const totalMessages = messages.length;
 
   async function handleConnect() {
+    cancelScanRef.current = false;
+    setIsCanceled(false);
     setLoading(true);
     setErrorText("");
+    setSuccessText("");
 
     try {
+      await handleSaveSettings();
       await testSynwayConnection(config);
       setConnected(true);
       await handleRefresh(true);
@@ -176,15 +213,35 @@ function App() {
   }
 
   async function handleRefresh(skipLoading = false) {
+    cancelScanRef.current = false;
+    setIsCanceled(false);
+
     if (!skipLoading) {
       setLoading(true);
     }
 
     setErrorText("");
+    setSuccessText("");
+    setScanProgress(0);
+    setScanCurrent(0);
+    setScanTotal(0);
 
     try {
       const portStates = await getPortStates(config);
-      const sms = await getAllSms(config, portStates.length);
+
+      setScanTotal(portStates.length);
+
+      const sms = await getAllSms(
+        config,
+        portStates.length,
+        (current, total) => {
+          setScanCurrent(current);
+          setScanTotal(total);
+          setScanProgress(Math.round((current / total) * 100));
+        },
+        () => cancelScanRef.current
+      );
+
       const dashboardPorts = buildDashboardPorts(portStates, sms);
 
       setPorts(dashboardPorts);
@@ -198,12 +255,65 @@ function App() {
       setLastSync(new Date().toLocaleString());
       setConnected(true);
     } catch (error) {
-      setErrorText(error instanceof Error ? error.message : "Refresh failed");
+      if (error instanceof Error && error.message === "SCAN_CANCELED") {
+        setIsCanceled(true);
+        setSuccessText("Scan canceled.");
+      } else {
+        setErrorText(error instanceof Error ? error.message : "Refresh failed");
+      }
     } finally {
+      setScanProgress(0);
+      setScanCurrent(0);
+      setScanTotal(0);
+
       if (!skipLoading) {
         setLoading(false);
       }
     }
+  }
+
+  async function handleSaveSettings() {
+    try {
+      await window.electronAPI.settings.save(config);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to save settings";
+      setErrorText(message);
+      throw error;
+    }
+  }
+
+  async function handleExportCsv() {
+    try {
+      setErrorText("");
+      setSuccessText("");
+
+      const result = await window.electronAPI.exportData.messagesCsv(
+        filteredMessages.map((msg) => ({
+          queriedPort: msg.queriedPort,
+          dateTime: msg.dateTime,
+          number: msg.number,
+          message: msg.message
+        }))
+      );
+
+      if (result.ok) {
+        setSuccessText(`CSV exported successfully to: ${result.path}`);
+        return;
+      }
+
+      if (!result.canceled) {
+        setErrorText("CSV export failed");
+      }
+    } catch (error) {
+      setErrorText(
+        error instanceof Error ? error.message : "Failed to export CSV"
+      );
+    }
+  }
+
+  function handleStopRefresh() {
+    cancelScanRef.current = true;
   }
 
   function clearPortFilter() {
@@ -303,6 +413,37 @@ function App() {
         <Box sx={{ flexGrow: 1, p: 2.2 }}>
           <Stack spacing={2}>
             {errorText && <Alert severity="error">{errorText}</Alert>}
+            {successText && <Alert severity="success">{successText}</Alert>}
+
+            {loading && scanTotal > 0 && (
+              <Paper
+                elevation={0}
+                sx={{
+                  p: 1.5,
+                  bgcolor: "background.paper",
+                  border: "1px solid rgba(255,255,255,0.06)"
+                }}
+              >
+                <Stack spacing={1}>
+                  <Stack direction="row" justifyContent="space-between">
+                    <Typography variant="body2">
+                      {scanCurrent > 0
+                        ? `Scanning port ${scanCurrent} of ${scanTotal}...`
+                        : "Scanning ports..."}
+                    </Typography>
+                    <Typography variant="body2" sx={{ opacity: 0.75 }}>
+                      {scanCurrent}/{scanTotal} ({scanProgress}%)
+                    </Typography>
+                  </Stack>
+
+                  <LinearProgress
+                    variant="determinate"
+                    value={scanProgress}
+                    sx={{ height: 8, borderRadius: 999 }}
+                  />
+                </Stack>
+              </Paper>
+            )}
 
             <Paper
               elevation={0}
@@ -349,13 +490,33 @@ function App() {
                   <Stack direction="row" spacing={1}>
                     <Button
                       variant="outlined"
-                      startIcon={<RefreshRoundedIcon />}
                       size="small"
-                      onClick={() => handleRefresh()}
+                      onClick={handleSaveSettings}
                       disabled={loading}
                     >
-                      Refresh
+                      Save Settings
                     </Button>
+
+                    {loading ? (
+                      <Button
+                        variant="outlined"
+                        color="error"
+                        size="small"
+                        onClick={handleStopRefresh}
+                      >
+                        Stop
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outlined"
+                        startIcon={<RefreshRoundedIcon />}
+                        size="small"
+                        onClick={() => handleRefresh()}
+                      >
+                        Refresh
+                      </Button>
+                    )}
+
                     <Button
                       variant="contained"
                       size="small"
@@ -593,6 +754,16 @@ function App() {
                       <Typography variant="h6" fontWeight={700}>
                         SMS Messages
                       </Typography>
+
+                      <Button
+                        variant="outlined"
+                        startIcon={<DownloadRoundedIcon />}
+                        size="small"
+                        onClick={handleExportCsv}
+                        disabled={filteredMessages.length === 0}
+                      >
+                        Export CSV
+                      </Button>
                     </Stack>
 
                     {selectedPortFilter !== null && (

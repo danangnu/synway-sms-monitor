@@ -25,5 +25,4 @@ export type DashboardPortCard = {
   smsCount: number;
   lastTime?: string;
   stateCode: number;
-  phoneNumber?: string | null;
 };
