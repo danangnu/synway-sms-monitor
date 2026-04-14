@@ -247,6 +247,21 @@ function App() {
       setPorts(dashboardPorts);
       setMessages(sms);
 
+      const dbResult = await window.electronAPI.database.saveMessages({
+        deviceHost: config.baseUrl.replace(/^https?:\/\//, ""),
+        messages: sms.map((msg) => ({
+          queriedPort: msg.queriedPort,
+          dateTime: msg.dateTime,
+          number: msg.number,
+          message: msg.message,
+          portInfo: msg.portInfo
+        }))
+      });
+
+      setSuccessText(
+        `Loaded ${sms.length} messages. Saved ${dbResult.inserted} new, skipped ${dbResult.skipped} duplicates.`
+      );
+
       const latestOverall = [...sms].sort((a, b) =>
         a.dateTime < b.dateTime ? 1 : -1
       )[0];

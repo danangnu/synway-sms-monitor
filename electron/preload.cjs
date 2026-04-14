@@ -17,5 +17,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     getPortInfo: (config) => ipcRenderer.invoke("synway:get-port-info", config),
     getSmsByPort: (config, port) =>
       ipcRenderer.invoke("synway:get-sms-by-port", config, port)
+  },
+  database: {
+    saveMessages: (payload) => ipcRenderer.invoke("db:save-messages", payload)
   }
 });

@@ -2,6 +2,8 @@ const { app, BrowserWindow, ipcMain, dialog } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const axios = require("axios");
+const mysql = require("mysql2/promise");
+const crypto = require("node:crypto");
 
 let mainWindow = null;
 
@@ -76,6 +78,47 @@ function escapeCsv(value) {
   return str;
 }
 
+function getDbConfigFromSettings() {
+  const filePath = getSettingsFilePath();
+
+  if (!fs.existsSync(filePath)) {
+    throw new Error("Settings file not found. Save settings first.");
+  }
+
+  const raw = fs.readFileSync(filePath, "utf-8");
+  const settings = JSON.parse(raw);
+
+  if (!settings.db) {
+    throw new Error("Database settings are missing.");
+  }
+
+  return settings.db;
+}
+
+async function getDbConnection() {
+  const db = getDbConfigFromSettings();
+
+  return mysql.createConnection({
+    host: db.host,
+    port: db.port || 3306,
+    user: db.user,
+    password: db.password,
+    database: db.database
+  });
+}
+
+function buildMessageHash(message) {
+  const raw = [
+    message.device_host || "",
+    message.queried_port ?? "",
+    message.dateTime || "",
+    message.number || "",
+    message.message || ""
+  ].join("|");
+
+  return crypto.createHash("sha256").update(raw).digest("hex");
+}
+
 ipcMain.handle("settings:load", async () => {
   try {
     const filePath = getSettingsFilePath();
@@ -140,6 +183,83 @@ ipcMain.handle("export:messages-csv", async (_event, messages) => {
     throw new Error(
       `Failed to export CSV: ${error instanceof Error ? error.message : String(error)}`
     );
+  }
+});
+
+ipcMain.handle("db:save-messages", async (_event, payload) => {
+  let conn;
+
+  try {
+    conn = await getDbConnection();
+
+    const deviceHost = payload.deviceHost;
+    const messages = payload.messages || [];
+
+    let inserted = 0;
+    let skipped = 0;
+
+    for (const msg of messages) {
+      const messageHash = buildMessageHash({
+        device_host: deviceHost,
+        queried_port: msg.queriedPort,
+        dateTime: msg.dateTime,
+        number: msg.number,
+        message: msg.message
+      });
+
+      const sql = `
+        INSERT INTO sms_messages (
+          device_host,
+          queried_port,
+          message_datetime,
+          sender_number,
+          message_text,
+          port_info,
+          message_hash
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          message_hash = message_hash
+      `;
+
+      const messageDate =
+        msg.dateTime && msg.dateTime.trim() !== ""
+          ? msg.dateTime
+          : null;
+
+      const [result] = await conn.execute(sql, [
+        deviceHost,
+        msg.queriedPort,
+        messageDate,
+        msg.number || null,
+        msg.message || "",
+        msg.portInfo || null,
+        messageHash
+      ]);
+
+      if (result.affectedRows === 1) {
+        inserted += 1;
+      } else {
+        skipped += 1;
+      }
+    }
+
+    return {
+      ok: true,
+      total: messages.length,
+      inserted,
+      skipped
+    };
+  } catch (error) {
+    throw new Error(
+      `Failed to save messages to database: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  } finally {
+    if (conn) {
+      await conn.end();
+    }
   }
 });
 
