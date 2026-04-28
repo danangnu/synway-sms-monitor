@@ -23,11 +23,24 @@ function createWindow() {
 
   const devServerUrl = process.env.VITE_DEV_SERVER_URL;
 
+  mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
+    console.error("Renderer failed to load:", {
+      errorCode,
+      errorDescription,
+      validatedURL
+    });
+  });
+
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    console.error("Renderer process gone:", details);
+  });
+
   if (devServerUrl) {
     mainWindow.loadURL(devServerUrl);
-    mainWindow.webContents.openDevTools();
+    mainWindow.webContents.openDevTools({ mode: "detach" });
   } else {
     mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
+    mainWindow.webContents.openDevTools({ mode: "detach" });
   }
 
   mainWindow.on("closed", () => {
@@ -263,6 +276,203 @@ ipcMain.handle("db:save-messages", async (_event, payload) => {
   }
 });
 
+ipcMain.handle("db:save-sent-message", async (_event, payload) => {
+  let conn;
+
+  try {
+    conn = await getDbConnection();
+
+    const messageHash = crypto
+      .createHash("sha256")
+      .update(
+        [
+          payload.deviceHost || "",
+          payload.port ?? "",
+          payload.num || "",
+          payload.message || "",
+          payload.taskId || "",
+          new Date().toISOString()
+        ].join("|")
+      )
+      .digest("hex");
+
+    const sql = `
+      INSERT INTO sms_sent_messages (
+        device_host,
+        send_port,
+        destination_number,
+        message_text,
+        encoding,
+        userid,
+        task_id,
+        gateway_result,
+        gateway_content,
+        send_status,
+        message_hash
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+
+    const [result] = await conn.execute(sql, [
+      payload.deviceHost,
+      Number(payload.port),
+      payload.num,
+      payload.message,
+      payload.encoding || "8",
+      payload.userid || "0",
+      payload.taskId || null,
+      payload.gatewayResult || null,
+      payload.gatewayContent || null,
+      payload.sendStatus || "submitted",
+      messageHash
+    ]);
+
+    return {
+      ok: true,
+      inserted: result.affectedRows === 1,
+      id: result.insertId || null
+    };
+  } catch (error) {
+    throw new Error(
+      `Failed to save sent SMS to database: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  } finally {
+    if (conn) {
+      await conn.end();
+    }
+  }
+});
+
+ipcMain.handle("db:update-sent-message-status", async (_event, payload) => {
+  let conn;
+
+  try {
+    conn = await getDbConnection();
+
+    const sql = `
+      UPDATE sms_sent_messages
+      SET
+        send_status = ?,
+        gateway_result = ?,
+        gateway_content = ?,
+        status_checked_at = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `;
+
+    const [result] = await conn.execute(sql, [
+      payload.sendStatus,
+      payload.gatewayResult || null,
+      payload.gatewayContent || null,
+      payload.id
+    ]);
+
+    return {
+      ok: true,
+      affectedRows: result.affectedRows
+    };
+  } catch (error) {
+    throw new Error(
+      `Failed to update sent SMS status: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  } finally {
+    if (conn) {
+      await conn.end();
+    }
+  }
+});
+
+ipcMain.handle("db:get-sent-messages", async (_event, filters = {}) => {
+  let conn;
+
+  try {
+    conn = await getDbConnection();
+
+    const where = [];
+    const params = [];
+
+    if (filters.port) {
+      where.push("send_port = ?");
+      params.push(Number(filters.port));
+    }
+
+    if (filters.destination) {
+      where.push("destination_number LIKE ?");
+      params.push(`%${filters.destination}%`);
+    }
+
+    if (filters.status) {
+      where.push("send_status = ?");
+      params.push(filters.status);
+    }
+
+    if (filters.keyword) {
+      where.push("message_text LIKE ?");
+      params.push(`%${filters.keyword}%`);
+    }
+
+    const whereSql = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+
+    const limit = Number(filters.limit || 100);
+
+    const sql = `
+      SELECT
+        id,
+        device_host,
+        send_port,
+        destination_number,
+        message_text,
+        encoding,
+        userid,
+        task_id,
+        gateway_result,
+        gateway_content,
+        send_status,
+        status_checked_at,
+        created_at,
+        updated_at
+      FROM sms_sent_messages
+      ${whereSql}
+      ORDER BY id DESC
+      LIMIT ?
+    `;
+
+    const [rows] = await conn.execute(sql, [...params, limit]);
+
+    const normalizedRows = rows.map((row) => ({
+      ...row,
+      created_at: row.created_at
+        ? new Date(row.created_at).toLocaleString()
+        : "",
+      updated_at: row.updated_at
+        ? new Date(row.updated_at).toLocaleString()
+        : "",
+      status_checked_at: row.status_checked_at
+        ? new Date(row.status_checked_at).toLocaleString()
+        : null
+    }));
+
+    return {
+      ok: true,
+      rows: normalizedRows
+    };
+  } catch (error) {
+    throw new Error(
+      `Failed to load sent SMS history: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  } finally {
+    if (conn) {
+      await conn.end();
+    }
+  }
+});
+
 ipcMain.handle("synway:test-connection", async (_event, config) => {
   return await synwayPost({
     ...config,
@@ -284,6 +494,32 @@ ipcMain.handle("synway:get-sms-by-port", async (_event, config, port) => {
     ...config,
     endpoint: "/API/QueryInfo",
     body: { event: "newqueryrxsms", port: String(port) }
+  });
+});
+
+ipcMain.handle("synway:send-sms", async (_event, config, payload) => {
+  return await synwayPost({
+    ...config,
+    endpoint: "/API/TaskHandle",
+    body: {
+      event: "txsms",
+      userid: payload.userid || "0",
+      num: payload.num,
+      port: String(payload.port),
+      encoding: payload.encoding || "8",
+      smsinfo: payload.message
+    }
+  });
+});
+
+ipcMain.handle("synway:query-sent-sms", async (_event, config, payload) => {
+  return await synwayPost({
+    ...config,
+    endpoint: "/API/QueryInfo",
+    body: {
+      event: "querytxsms",
+      taskid: String(payload.taskId)
+    }
   });
 });
 

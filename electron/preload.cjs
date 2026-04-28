@@ -16,9 +16,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
     testConnection: (config) => ipcRenderer.invoke("synway:test-connection", config),
     getPortInfo: (config) => ipcRenderer.invoke("synway:get-port-info", config),
     getSmsByPort: (config, port) =>
-      ipcRenderer.invoke("synway:get-sms-by-port", config, port)
+      ipcRenderer.invoke("synway:get-sms-by-port", config, port),
+    sendSms: (config, payload) =>
+      ipcRenderer.invoke("synway:send-sms", config, payload),
+    querySentSms: (config, payload) =>
+      ipcRenderer.invoke("synway:query-sent-sms", config, payload)
   },
   database: {
-    saveMessages: (payload) => ipcRenderer.invoke("db:save-messages", payload)
+    saveMessages: (payload) => ipcRenderer.invoke("db:save-messages", payload),
+    saveSentMessage: (payload) => ipcRenderer.invoke("db:save-sent-message", payload),
+    updateSentMessageStatus: (payload) =>
+      ipcRenderer.invoke("db:update-sent-message-status", payload),
+    getSentMessages: (filters) => ipcRenderer.invoke("db:get-sent-messages", filters)
   }
 });

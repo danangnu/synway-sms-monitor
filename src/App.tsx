@@ -46,6 +46,23 @@ import {
   testSynwayConnection
 } from "./services/synwayApi";
 
+type SentSmsRow = {
+  id: number;
+  device_host: string;
+  send_port: number;
+  destination_number: string;
+  message_text: string;
+  encoding: string;
+  userid: string | null;
+  task_id: string | null;
+  gateway_result: string | null;
+  gateway_content: string | null;
+  send_status: string;
+  status_checked_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 const drawerWidth = 220;
 
 const darkTheme = createTheme({
@@ -97,6 +114,61 @@ function getPortLabel(state: DashboardPortCard["state"]) {
   return "Inactive";
 }
 
+function extractTaskId(content: string) {
+  const text = String(content || "");
+
+  const patterns = [
+    /taskid[:=]\s*([A-Za-z0-9_-]+)/i,
+    /task_id[:=]\s*([A-Za-z0-9_-]+)/i,
+    /task\s*id[:=]\s*([A-Za-z0-9_-]+)/i,
+    /id[:=]\s*([A-Za-z0-9_-]+)/i
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) {
+      return match[1];
+    }
+  }
+
+  // Fallback: if content is just a number/string task id
+  if (/^[A-Za-z0-9_-]+$/.test(text.trim())) {
+    return text.trim();
+  }
+
+  return null;
+}
+
+function mapSynwaySendStatus(result: string, content: string) {
+  const r = String(result || "").toLowerCase();
+  const c = String(content || "").toLowerCase();
+
+  if (r !== "ok") {
+    return "failed";
+  }
+
+  if (
+    c.includes("success") ||
+    c.includes("sent") ||
+    c.includes("send success") ||
+    c.includes("ok")
+  ) {
+    return "success";
+  }
+
+  if (
+    c.includes("fail") ||
+    c.includes("error") ||
+    c.includes("timeout") ||
+    c.includes("no available") ||
+    c.includes("queue full")
+  ) {
+    return "failed";
+  }
+
+  return "submitted";
+}
+
 function App() {
   const [selectedMenu, setSelectedMenu] = useState("Dashboard");
   const [search, setSearch] = useState("");
@@ -124,20 +196,41 @@ function App() {
   const [scanTotal, setScanTotal] = useState(0);
   const cancelScanRef = useRef(false);
   const [isCanceled, setIsCanceled] = useState(false);
+  const [sendPort, setSendPort] = useState("1");
+  const [sendNumber, setSendNumber] = useState("");
+  const [sendMessage, setSendMessage] = useState("");
+  const [sendEncoding, setSendEncoding] = useState("8");
+  const [sendingSms, setSendingSms] = useState(false);
+  const [sentMessages, setSentMessages] = useState<SentSmsRow[]>([]);
+  const [sentLoading, setSentLoading] = useState(false);
+  const [sentStatusFilter, setSentStatusFilter] = useState("");
+  const [sentKeywordFilter, setSentKeywordFilter] = useState("");
 
   useEffect(() => {
-    async function loadSavedSettings() {
+    async function loadSavedSettingsAndHistory() {
       try {
+        if (!window.electronAPI?.settings?.load) {
+          console.warn("Electron settings API is not available.");
+          return;
+        }
+
         const saved = await window.electronAPI.settings.load();
+
         if (saved) {
           setConfig(saved);
         }
+
+        await loadSentMessages();
       } catch (error) {
-        console.error("Failed to load saved settings", error);
+        console.error("Failed to load startup data", error);
+        setErrorText(
+          error instanceof Error ? error.message : "Failed to load startup data"
+        );
       }
     }
 
-    loadSavedSettings();
+    loadSavedSettingsAndHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -191,6 +284,33 @@ function App() {
   const activePorts = ports.filter((p) => p.state === "active").length;
   const portsWithSms = ports.filter((p) => p.smsCount > 0).length;
   const totalMessages = messages.length;
+
+  async function loadSentMessages() {
+    if (!window.electronAPI?.database?.getSentMessages) {
+      console.warn("Electron database API is not available yet.");
+      return;
+    }
+
+    setSentLoading(true);
+
+    try {
+      const result = await window.electronAPI.database.getSentMessages({
+        status: sentStatusFilter.trim() || undefined,
+        keyword: sentKeywordFilter.trim() || undefined,
+        limit: 100
+      });
+
+      if (result.ok) {
+        setSentMessages(result.rows);
+      }
+    } catch (error) {
+      setErrorText(
+        error instanceof Error ? error.message : "Failed to load sent SMS history"
+      );
+    } finally {
+      setSentLoading(false);
+    }
+  }
 
   async function handleConnect() {
     cancelScanRef.current = false;
@@ -329,6 +449,99 @@ function App() {
 
   function handleStopRefresh() {
     cancelScanRef.current = true;
+  }
+
+  async function handleSendSms() {
+    const number = sendNumber.trim();
+    const message = sendMessage.trim();
+    const port = sendPort.trim();
+
+    if (!number) {
+      setErrorText("Destination number is required.");
+      return;
+    }
+
+    if (!port) {
+      setErrorText("Port is required.");
+      return;
+    }
+
+    if (!message) {
+      setErrorText("Message is required.");
+      return;
+    }
+
+    setSendingSms(true);
+    setErrorText("");
+    setSuccessText("");
+
+    try {
+      const sendResult = await window.electronAPI.synway.sendSms(config, {
+        userid: "0",
+        num: number,
+        port,
+        encoding: sendEncoding,
+        message
+      });
+
+      if (sendResult.result !== "ok") {
+        throw new Error(sendResult.content || "Failed to send SMS");
+      }
+
+      const taskId = extractTaskId(sendResult.content);
+
+      const dbSaveResult = await window.electronAPI.database.saveSentMessage({
+        deviceHost: config.baseUrl.replace(/^https?:\/\//, ""),
+        port,
+        num: number,
+        message,
+        encoding: sendEncoding,
+        userid: "0",
+        taskId,
+        gatewayResult: sendResult.result,
+        gatewayContent: sendResult.content,
+        sendStatus: "submitted"
+      });
+
+      let finalStatus = "submitted";
+      let queryContent = "";
+
+      if (taskId && dbSaveResult.id) {
+        // Small delay gives Synway time to update the task status.
+        await new Promise((resolve) => window.setTimeout(resolve, 1500));
+
+        const statusResult = await window.electronAPI.synway.querySentSms(config, {
+          taskId
+        });
+
+        queryContent = statusResult.content;
+        finalStatus = mapSynwaySendStatus(statusResult.result, statusResult.content);
+
+        await window.electronAPI.database.updateSentMessageStatus({
+          id: dbSaveResult.id,
+          sendStatus: finalStatus,
+          gatewayResult: statusResult.result,
+          gatewayContent: statusResult.content
+        });
+      }
+
+      if (finalStatus === "success") {
+        setSuccessText(`SMS sent successfully. Task ID: ${taskId || "N/A"}`);
+      } else if (finalStatus === "failed") {
+        setErrorText(`SMS submitted but failed. ${queryContent || sendResult.content || ""}`);
+      } else {
+        setSuccessText(
+          `SMS submitted and saved to database. Task ID: ${taskId || "N/A"}`
+        );
+      }
+
+      await loadSentMessages();
+      setSendMessage("");
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : "Failed to send SMS");
+    } finally {
+      setSendingSms(false);
+    }
   }
 
   function clearPortFilter() {
@@ -573,6 +786,81 @@ function App() {
                     fullWidth
                   />
                 </Stack>
+              </Stack>
+            </Paper>
+
+            <Paper
+              elevation={0}
+              sx={{
+                p: 2,
+                bgcolor: "background.paper",
+                border: "1px solid rgba(255,255,255,0.06)"
+              }}
+            >
+              <Stack spacing={1.5}>
+                <Stack
+                  direction={{ xs: "column", md: "row" }}
+                  justifyContent="space-between"
+                  alignItems={{ xs: "flex-start", md: "center" }}
+                  spacing={1.5}
+                >
+                  <Box>
+                    <Typography variant="h6" fontWeight={700}>
+                      Send SMS
+                    </Typography>
+                    <Typography variant="body2" sx={{ opacity: 0.65 }}>
+                      Send an outbound SMS through the selected Synway port.
+                    </Typography>
+                  </Box>
+
+                  <Button
+                    variant="contained"
+                    size="small"
+                    onClick={handleSendSms}
+                    disabled={sendingSms || loading}
+                  >
+                    {sendingSms ? "Sending..." : "Send SMS"}
+                  </Button>
+                </Stack>
+
+                <Stack direction={{ xs: "column", md: "row" }} spacing={1.2}>
+                  <TextField
+                    size="small"
+                    label="Port"
+                    value={sendPort}
+                    onChange={(e) => setSendPort(e.target.value)}
+                    sx={{ width: { xs: "100%", md: 120 } }}
+                  />
+
+                  <TextField
+                    size="small"
+                    label="Destination Number"
+                    placeholder="Example: 61400111222"
+                    value={sendNumber}
+                    onChange={(e) => setSendNumber(e.target.value)}
+                    fullWidth
+                  />
+
+                  <TextField
+                    size="small"
+                    label="Encoding"
+                    value={sendEncoding}
+                    onChange={(e) => setSendEncoding(e.target.value)}
+                    sx={{ width: { xs: "100%", md: 140 } }}
+                    helperText="8 = UCS-2"
+                  />
+                </Stack>
+
+                <TextField
+                  size="small"
+                  label="Message"
+                  value={sendMessage}
+                  onChange={(e) => setSendMessage(e.target.value)}
+                  multiline
+                  minRows={3}
+                  fullWidth
+                  helperText={`${sendMessage.length} characters`}
+                />
               </Stack>
             </Paper>
 
@@ -871,6 +1159,143 @@ function App() {
                         )}
                       </Box>
                     </Box>
+                  </Paper>
+
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      p: 1.8,
+                      bgcolor: "background.paper",
+                      border: "1px solid rgba(255,255,255,0.06)"
+                    }}
+                  >
+                    <Stack spacing={1.5}>
+                      <Stack
+                        direction={{ xs: "column", md: "row" }}
+                        justifyContent="space-between"
+                        alignItems={{ xs: "flex-start", md: "center" }}
+                        spacing={1.5}
+                      >
+                        <Box>
+                          <Typography variant="h6" fontWeight={700}>
+                            Recent Sent SMS
+                          </Typography>
+                          <Typography variant="body2" sx={{ opacity: 0.65 }}>
+                            Last 100 outbound SMS records saved in MariaDB.
+                          </Typography>
+                        </Box>
+
+                        <Stack direction={{ xs: "column", md: "row" }} spacing={1}>
+                          <TextField
+                            size="small"
+                            label="Status"
+                            placeholder="success / failed / submitted"
+                            value={sentStatusFilter}
+                            onChange={(e) => setSentStatusFilter(e.target.value)}
+                            sx={{ width: { xs: "100%", md: 190 } }}
+                          />
+
+                          <TextField
+                            size="small"
+                            label="Search"
+                            placeholder="number or message"
+                            value={sentKeywordFilter}
+                            onChange={(e) => setSentKeywordFilter(e.target.value)}
+                            sx={{ width: { xs: "100%", md: 220 } }}
+                          />
+
+                          <Button
+                            variant="outlined"
+                            size="small"
+                            onClick={loadSentMessages}
+                            disabled={sentLoading}
+                          >
+                            {sentLoading ? "Loading..." : "Load"}
+                          </Button>
+                        </Stack>
+                      </Stack>
+
+                      <Box sx={{ overflowX: "auto" }}>
+                        <Box sx={{ minWidth: 960 }}>
+                          <Box
+                            sx={{
+                              display: "grid",
+                              gridTemplateColumns: "100px 70px 150px 1fr 140px 160px",
+                              px: 1.5,
+                              py: 1,
+                              borderBottom: "1px solid rgba(255,255,255,0.08)",
+                              color: "rgba(255,255,255,0.65)",
+                              fontWeight: 600,
+                              fontSize: "0.78rem"
+                            }}
+                          >
+                            <Box>Status</Box>
+                            <Box>Port</Box>
+                            <Box>Destination</Box>
+                            <Box>Message</Box>
+                            <Box>Task ID</Box>
+                            <Box>Created</Box>
+                          </Box>
+
+                          {sentMessages.length === 0 ? (
+                            <Box sx={{ px: 2, py: 3 }}>
+                              <Typography variant="body2" sx={{ opacity: 0.65 }}>
+                                No sent SMS history found.
+                              </Typography>
+                            </Box>
+                          ) : (
+                            sentMessages.map((item) => (
+                              <Box
+                                key={item.id}
+                                sx={{
+                                  display: "grid",
+                                  gridTemplateColumns: "100px 70px 150px 1fr 140px 160px",
+                                  px: 1.5,
+                                  py: 1.2,
+                                  borderBottom: "1px solid rgba(255,255,255,0.06)",
+                                  "&:hover": {
+                                    bgcolor: "rgba(255,255,255,0.04)"
+                                  }
+                                }}
+                              >
+                                <Box>
+                                  <Chip
+                                    label={item.send_status}
+                                    size="small"
+                                    color={
+                                      item.send_status === "success"
+                                        ? "success"
+                                        : item.send_status === "failed"
+                                          ? "error"
+                                          : "warning"
+                                    }
+                                    sx={{
+                                      height: 22,
+                                      "& .MuiChip-label": {
+                                        px: 0.8,
+                                        fontSize: "0.72rem"
+                                      }
+                                    }}
+                                  />
+                                </Box>
+
+                                <Typography variant="body2">{item.send_port}</Typography>
+                                <Typography variant="body2">{item.destination_number}</Typography>
+                                <Typography variant="body2" noWrap>
+                                  {item.message_text}
+                                </Typography>
+                                <Typography variant="body2" noWrap>
+                                  {item.task_id || "-"}
+                                </Typography>
+                                <Typography variant="body2" noWrap>
+                                  {item.created_at}
+                                </Typography>
+                              </Box>
+                            ))
+                          )}
+                        </Box>
+                      </Box>
+                    </Stack>
                   </Paper>
                 </Stack>
               </Box>
