@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { getPortColor, getPortLabel } from "./utils/portHelpers";
+import { extractTaskId, mapSynwaySendStatus } from "./utils/smsHelpers";
+import AlertStack from "./components/common/AlertStack";
+import ScanProgressBanner from "./components/common/ScanProgressBanner";
+import Sidebar from "./components/layout/Sidebar";
+import ConnectionPanel from "./components/connection/ConnectionPanel";
+import SendSmsPanel from "./components/sms/SendSmsPanel";
+import StatsCards from "./components/dashboard/StatsCards";
 import {
-  Alert,
-  Avatar,
-  Badge,
   Box,
   Button,
   Card,
@@ -10,13 +15,7 @@ import {
   Chip,
   CssBaseline,
   Divider,
-  Drawer,
   InputBase,
-  LinearProgress,
-  List,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
   Paper,
   Stack,
   TextField,
@@ -24,16 +23,8 @@ import {
   Typography,
   createTheme
 } from "@mui/material";
-import DashboardRoundedIcon from "@mui/icons-material/DashboardRounded";
-import DnsRoundedIcon from "@mui/icons-material/DnsRounded";
-import SmsRoundedIcon from "@mui/icons-material/SmsRounded";
-import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
-import ArticleRoundedIcon from "@mui/icons-material/ArticleRounded";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
-import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
-import CircleRoundedIcon from "@mui/icons-material/CircleRounded";
-import RouterRoundedIcon from "@mui/icons-material/RouterRounded";
 import type {
   DashboardPortCard,
   SynwayConfig,
@@ -62,8 +53,6 @@ type SentSmsRow = {
   created_at: string;
   updated_at: string;
 };
-
-const drawerWidth = 220;
 
 const darkTheme = createTheme({
   palette: {
@@ -102,73 +91,6 @@ const darkTheme = createTheme({
   }
 });
 
-function getPortColor(state: DashboardPortCard["state"]) {
-  if (state === "active") return "success";
-  if (state === "has_sms") return "info";
-  return "default";
-}
-
-function getPortLabel(state: DashboardPortCard["state"]) {
-  if (state === "active") return "Active";
-  if (state === "has_sms") return "Has SMS";
-  return "Inactive";
-}
-
-function extractTaskId(content: string) {
-  const text = String(content || "");
-
-  const patterns = [
-    /taskid[:=]\s*([A-Za-z0-9_-]+)/i,
-    /task_id[:=]\s*([A-Za-z0-9_-]+)/i,
-    /task\s*id[:=]\s*([A-Za-z0-9_-]+)/i,
-    /id[:=]\s*([A-Za-z0-9_-]+)/i
-  ];
-
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (match?.[1]) {
-      return match[1];
-    }
-  }
-
-  // Fallback: if content is just a number/string task id
-  if (/^[A-Za-z0-9_-]+$/.test(text.trim())) {
-    return text.trim();
-  }
-
-  return null;
-}
-
-function mapSynwaySendStatus(result: string, content: string) {
-  const r = String(result || "").toLowerCase();
-  const c = String(content || "").toLowerCase();
-
-  if (r !== "ok") {
-    return "failed";
-  }
-
-  if (
-    c.includes("success") ||
-    c.includes("sent") ||
-    c.includes("send success") ||
-    c.includes("ok")
-  ) {
-    return "success";
-  }
-
-  if (
-    c.includes("fail") ||
-    c.includes("error") ||
-    c.includes("timeout") ||
-    c.includes("no available") ||
-    c.includes("queue full")
-  ) {
-    return "failed";
-  }
-
-  return "submitted";
-}
-
 function App() {
   const [selectedMenu, setSelectedMenu] = useState("Dashboard");
   const [search, setSearch] = useState("");
@@ -195,6 +117,7 @@ function App() {
   const [scanCurrent, setScanCurrent] = useState(0);
   const [scanTotal, setScanTotal] = useState(0);
   const cancelScanRef = useRef(false);
+  const sendingSmsRef = useRef(false);
   const [isCanceled, setIsCanceled] = useState(false);
   const [sendPort, setSendPort] = useState("1");
   const [sendNumber, setSendNumber] = useState("");
@@ -452,6 +375,10 @@ function App() {
   }
 
   async function handleSendSms() {
+    if (sendingSmsRef.current || sendingSms) {
+      return;
+    }
+
     const number = sendNumber.trim();
     const message = sendMessage.trim();
     const port = sendPort.trim();
@@ -471,6 +398,7 @@ function App() {
       return;
     }
 
+    sendingSmsRef.current = true;
     setSendingSms(true);
     setErrorText("");
     setSuccessText("");
@@ -540,6 +468,7 @@ function App() {
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : "Failed to send SMS");
     } finally {
+      sendingSmsRef.current = false;
       setSendingSms(false);
     }
   }
@@ -561,350 +490,63 @@ function App() {
       <Box
         sx={{ display: "flex", minHeight: "100vh", bgcolor: "background.default" }}
       >
-        <Drawer
-          variant="permanent"
-          sx={{
-            width: drawerWidth,
-            flexShrink: 0,
-            [`& .MuiDrawer-paper`]: {
-              width: drawerWidth,
-              boxSizing: "border-box",
-              bgcolor: "#0d1527",
-              borderRight: "1px solid rgba(255,255,255,0.06)"
-            }
-          }}
-        >
-          <Box sx={{ p: 2 }}>
-            <Stack direction="row" spacing={1.2} alignItems="center">
-              <Avatar sx={{ bgcolor: "primary.main", width: 34, height: 34 }}>
-                <RouterRoundedIcon sx={{ fontSize: 18 }} />
-              </Avatar>
-              <Box>
-                <Typography
-                  fontWeight={700}
-                  sx={{ fontSize: "0.95rem", lineHeight: 1.1 }}
-                >
-                  Synway SMS
-                </Typography>
-                <Typography variant="body2" sx={{ opacity: 0.65 }}>
-                  Monitor
-                </Typography>
-              </Box>
-            </Stack>
-          </Box>
-
-          <Divider sx={{ borderColor: "rgba(255,255,255,0.06)" }} />
-
-          <List sx={{ px: 1.2, py: 1.5 }}>
-            {[
-              { text: "Dashboard", icon: <DashboardRoundedIcon sx={{ fontSize: 20 }} /> },
-              { text: "Ports", icon: <DnsRoundedIcon sx={{ fontSize: 20 }} /> },
-              { text: "Messages", icon: <SmsRoundedIcon sx={{ fontSize: 20 }} /> },
-              { text: "Export", icon: <DownloadRoundedIcon sx={{ fontSize: 20 }} /> },
-              { text: "Logs", icon: <ArticleRoundedIcon sx={{ fontSize: 20 }} /> },
-              { text: "Settings", icon: <SettingsRoundedIcon sx={{ fontSize: 20 }} /> }
-            ].map((item) => (
-              <ListItemButton
-                key={item.text}
-                selected={selectedMenu === item.text}
-                onClick={() => setSelectedMenu(item.text)}
-                sx={{
-                  mb: 0.8,
-                  py: 0.9,
-                  borderRadius: 3,
-                  "& .MuiListItemText-primary": {
-                    fontSize: "0.92rem"
-                  },
-                  "&.Mui-selected": {
-                    bgcolor: "rgba(79,140,255,0.16)",
-                    border: "1px solid rgba(79,140,255,0.25)"
-                  }
-                }}
-              >
-                <ListItemIcon sx={{ minWidth: 36, color: "inherit" }}>
-                  {item.icon}
-                </ListItemIcon>
-                <ListItemText primary={item.text} />
-                {item.text === "Messages" && totalMessages > 0 && (
-                  <Badge badgeContent={totalMessages} color="primary" />
-                )}
-              </ListItemButton>
-            ))}
-          </List>
-
-          <Box sx={{ mt: "auto", p: 1.8, opacity: 0.65 }}>
-            <Typography variant="body2">Device UI</Typography>
-            <Typography variant="caption">Local desktop monitor</Typography>
-          </Box>
-        </Drawer>
+        <Sidebar
+          selectedMenu={selectedMenu}
+          onSelectMenu={setSelectedMenu}
+          totalMessages={totalMessages}
+        />
 
         <Box sx={{ flexGrow: 1, p: 2.2 }}>
           <Stack spacing={2}>
-            {errorText && <Alert severity="error">{errorText}</Alert>}
-            {successText && <Alert severity="success">{successText}</Alert>}
+            <AlertStack errorText={errorText} successText={successText} />
 
-            {loading && scanTotal > 0 && (
-              <Paper
-                elevation={0}
-                sx={{
-                  p: 1.5,
-                  bgcolor: "background.paper",
-                  border: "1px solid rgba(255,255,255,0.06)"
-                }}
-              >
-                <Stack spacing={1}>
-                  <Stack direction="row" justifyContent="space-between">
-                    <Typography variant="body2">
-                      {scanCurrent > 0
-                        ? `Scanning port ${scanCurrent} of ${scanTotal}...`
-                        : "Scanning ports..."}
-                    </Typography>
-                    <Typography variant="body2" sx={{ opacity: 0.75 }}>
-                      {scanCurrent}/{scanTotal} ({scanProgress}%)
-                    </Typography>
-                  </Stack>
+            <ScanProgressBanner
+              loading={loading}
+              scanCurrent={scanCurrent}
+              scanTotal={scanTotal}
+              scanProgress={scanProgress}
+            />
 
-                  <LinearProgress
-                    variant="determinate"
-                    value={scanProgress}
-                    sx={{ height: 8, borderRadius: 999 }}
-                  />
-                </Stack>
-              </Paper>
-            )}
+            <ConnectionPanel
+              config={config}
+              connected={connected}
+              loading={loading}
+              lastSync={lastSync}
+              onSaveSettings={handleSaveSettings}
+              onRefresh={() => handleRefresh()}
+              onConnect={handleConnect}
+              onStopRefresh={handleStopRefresh}
+              onBaseUrlChange={(value) =>
+                setConfig((prev) => ({ ...prev, baseUrl: value }))
+              }
+              onUsernameChange={(value) =>
+                setConfig((prev) => ({ ...prev, username: value }))
+              }
+              onPasswordChange={(value) =>
+                setConfig((prev) => ({ ...prev, password: value }))
+              }
+            />
 
-            <Paper
-              elevation={0}
-              sx={{
-                p: 2,
-                bgcolor: "background.paper",
-                border: "1px solid rgba(255,255,255,0.06)"
-              }}
-            >
-              <Stack spacing={2}>
-                <Stack
-                  direction={{ xs: "column", lg: "row" }}
-                  spacing={1.5}
-                  justifyContent="space-between"
-                  alignItems={{ xs: "flex-start", lg: "center" }}
-                >
-                  <Box>
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <CircleRoundedIcon
-                        sx={{
-                          color: connected ? "success.main" : "error.main",
-                          fontSize: 12
-                        }}
-                      />
-                      <Typography
-                        variant="h5"
-                        fontWeight={700}
-                        sx={{ fontSize: "1.45rem" }}
-                      >
-                        {config.baseUrl.replace(/^https?:\/\//, "")}
-                      </Typography>
-                      <Chip
-                        label={connected ? "Online" : "Offline"}
-                        color={connected ? "success" : "error"}
-                        size="small"
-                        sx={{ height: 24 }}
-                      />
-                    </Stack>
-                    <Typography sx={{ opacity: 0.7, mt: 0.5, fontSize: "0.82rem" }}>
-                      Last sync: {lastSync}
-                    </Typography>
-                  </Box>
+            <SendSmsPanel
+              sendPort={sendPort}
+              sendNumber={sendNumber}
+              sendMessage={sendMessage}
+              sendEncoding={sendEncoding}
+              sendingSms={sendingSms}
+              loading={loading}
+              onSend={handleSendSms}
+              onPortChange={setSendPort}
+              onNumberChange={setSendNumber}
+              onEncodingChange={setSendEncoding}
+              onMessageChange={setSendMessage}
+            />
 
-                  <Stack direction="row" spacing={1}>
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      onClick={handleSaveSettings}
-                      disabled={loading}
-                    >
-                      Save Settings
-                    </Button>
-
-                    {loading ? (
-                      <Button
-                        variant="outlined"
-                        color="error"
-                        size="small"
-                        onClick={handleStopRefresh}
-                      >
-                        Stop
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="outlined"
-                        startIcon={<RefreshRoundedIcon />}
-                        size="small"
-                        onClick={() => handleRefresh()}
-                      >
-                        Refresh
-                      </Button>
-                    )}
-
-                    <Button
-                      variant="contained"
-                      size="small"
-                      onClick={handleConnect}
-                      disabled={loading}
-                    >
-                      {loading ? "Loading..." : connected ? "Reconnect" : "Connect"}
-                    </Button>
-                  </Stack>
-                </Stack>
-
-                <Stack direction={{ xs: "column", md: "row" }} spacing={1.2}>
-                  <TextField
-                    size="small"
-                    label="Device URL"
-                    value={config.baseUrl}
-                    onChange={(e) =>
-                      setConfig((prev) => ({ ...prev, baseUrl: e.target.value }))
-                    }
-                    fullWidth
-                  />
-                  <TextField
-                    size="small"
-                    label="API Username"
-                    value={config.username}
-                    onChange={(e) =>
-                      setConfig((prev) => ({ ...prev, username: e.target.value }))
-                    }
-                    fullWidth
-                  />
-                  <TextField
-                    size="small"
-                    label="API Password"
-                    type="password"
-                    value={config.password}
-                    onChange={(e) =>
-                      setConfig((prev) => ({ ...prev, password: e.target.value }))
-                    }
-                    fullWidth
-                  />
-                </Stack>
-              </Stack>
-            </Paper>
-
-            <Paper
-              elevation={0}
-              sx={{
-                p: 2,
-                bgcolor: "background.paper",
-                border: "1px solid rgba(255,255,255,0.06)"
-              }}
-            >
-              <Stack spacing={1.5}>
-                <Stack
-                  direction={{ xs: "column", md: "row" }}
-                  justifyContent="space-between"
-                  alignItems={{ xs: "flex-start", md: "center" }}
-                  spacing={1.5}
-                >
-                  <Box>
-                    <Typography variant="h6" fontWeight={700}>
-                      Send SMS
-                    </Typography>
-                    <Typography variant="body2" sx={{ opacity: 0.65 }}>
-                      Send an outbound SMS through the selected Synway port.
-                    </Typography>
-                  </Box>
-
-                  <Button
-                    variant="contained"
-                    size="small"
-                    onClick={handleSendSms}
-                    disabled={sendingSms || loading}
-                  >
-                    {sendingSms ? "Sending..." : "Send SMS"}
-                  </Button>
-                </Stack>
-
-                <Stack direction={{ xs: "column", md: "row" }} spacing={1.2}>
-                  <TextField
-                    size="small"
-                    label="Port"
-                    value={sendPort}
-                    onChange={(e) => setSendPort(e.target.value)}
-                    sx={{ width: { xs: "100%", md: 120 } }}
-                  />
-
-                  <TextField
-                    size="small"
-                    label="Destination Number"
-                    placeholder="Example: 61400111222"
-                    value={sendNumber}
-                    onChange={(e) => setSendNumber(e.target.value)}
-                    fullWidth
-                  />
-
-                  <TextField
-                    size="small"
-                    label="Encoding"
-                    value={sendEncoding}
-                    onChange={(e) => setSendEncoding(e.target.value)}
-                    sx={{ width: { xs: "100%", md: 140 } }}
-                    helperText="8 = UCS-2"
-                  />
-                </Stack>
-
-                <TextField
-                  size="small"
-                  label="Message"
-                  value={sendMessage}
-                  onChange={(e) => setSendMessage(e.target.value)}
-                  multiline
-                  minRows={3}
-                  fullWidth
-                  helperText={`${sendMessage.length} characters`}
-                />
-              </Stack>
-            </Paper>
-
-            <Stack direction={{ xs: "column", md: "row" }} spacing={1.5}>
-              {[
-                { label: "Total Ports", value: totalPorts, color: "primary.main" },
-                { label: "Active", value: activePorts, color: "success.main" },
-                { label: "Ports With SMS", value: portsWithSms, color: "warning.main" },
-                { label: "Total Messages", value: totalMessages, color: "info.main" }
-              ].map((card) => (
-                <Card
-                  key={card.label}
-                  sx={{
-                    flex: 1,
-                    bgcolor: "background.paper",
-                    border: "1px solid rgba(255,255,255,0.06)"
-                  }}
-                >
-                  <CardContent sx={{ p: "14px !important" }}>
-                    <Stack direction="row" spacing={1.5} alignItems="center">
-                      <Avatar
-                        sx={{
-                          bgcolor: card.color,
-                          color: "#fff",
-                          width: 40,
-                          height: 40,
-                          fontSize: "0.95rem"
-                        }}
-                      >
-                        {card.value}
-                      </Avatar>
-                      <Box>
-                        <Typography variant="body2" sx={{ opacity: 0.7 }}>
-                          {card.label}
-                        </Typography>
-                        <Typography sx={{ fontSize: "1.55rem", fontWeight: 700 }}>
-                          {card.value}
-                        </Typography>
-                      </Box>
-                    </Stack>
-                  </CardContent>
-                </Card>
-              ))}
-            </Stack>
+            <StatsCards
+              totalPorts={totalPorts}
+              activePorts={activePorts}
+              portsWithSms={portsWithSms}
+              totalMessages={totalMessages}
+            />
 
             <Stack direction={{ xs: "column", xl: "row" }} spacing={2}>
               <Box sx={{ flex: 1.7, minWidth: 0 }}>
