@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, Notification } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const axios = require("axios");
@@ -46,6 +46,28 @@ function createWindow() {
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
+}
+
+function showDesktopNotification(title, body) {
+  try {
+    if (!Notification.isSupported()) {
+      console.warn("Desktop notifications are not supported on this system.");
+      return { ok: false, supported: false };
+    }
+
+    const notification = new Notification({
+      title,
+      body,
+      silent: false
+    });
+
+    notification.show();
+
+    return { ok: true, supported: true };
+  } catch (error) {
+    console.error("Failed to show notification:", error);
+    return { ok: false, supported: false };
+  }
 }
 
 function buildBasicAuth(username, password) {
@@ -120,13 +142,21 @@ async function getDbConnection() {
   });
 }
 
+function normalizeSmsValue(value) {
+  return String(value ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function buildMessageHash(message) {
   const raw = [
-    message.device_host || "",
-    message.queried_port ?? "",
-    message.dateTime || "",
-    message.number || "",
-    message.message || ""
+    normalizeSmsValue(message.device_host),
+    normalizeSmsValue(message.queried_port),
+    normalizeSmsValue(message.dateTime),
+    normalizeSmsValue(message.number),
+    normalizeSmsValue(message.message)
   ].join("|");
 
   return crypto.createHash("sha256").update(raw).digest("hex");
@@ -147,6 +177,19 @@ ipcMain.handle("settings:load", async () => {
       `Failed to load settings: ${error instanceof Error ? error.message : String(error)}`
     );
   }
+});
+
+ipcMain.handle("notify:new-sms", async (_event, payload) => {
+  const count = Number(payload.count || 0);
+  const deviceHost = payload.deviceHost || "Synway device";
+
+  const title = count === 1 ? "New SMS received" : `${count} new SMS received`;
+  const body =
+    count === 1
+      ? `New message received from ${deviceHost}.`
+      : `${count} new messages received from ${deviceHost}.`;
+
+  return showDesktopNotification(title, body);
 });
 
 ipcMain.handle("settings:save", async (_event, settings) => {
@@ -221,7 +264,7 @@ ipcMain.handle("db:save-messages", async (_event, payload) => {
       });
 
       const sql = `
-        INSERT INTO sms_messages (
+        INSERT IGNORE INTO sms_messages (
           device_host,
           queried_port,
           message_datetime,
@@ -231,8 +274,6 @@ ipcMain.handle("db:save-messages", async (_event, payload) => {
           message_hash
         )
         VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-          message_hash = message_hash
       `;
 
       const messageDate =
@@ -463,6 +504,77 @@ ipcMain.handle("db:get-sent-messages", async (_event, filters = {}) => {
   } catch (error) {
     throw new Error(
       `Failed to load sent SMS history: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  } finally {
+    if (conn) {
+      await conn.end();
+    }
+  }
+});
+
+ipcMain.handle("db:get-today-incoming-messages", async (_event, filters = {}) => {
+  let conn;
+
+  try {
+    conn = await getDbConnection();
+
+    const where = ["DATE(message_datetime) = CURDATE()"];
+    const params = [];
+
+    if (filters.port) {
+      where.push("queried_port = ?");
+      params.push(Number(filters.port));
+    }
+
+    if (filters.sender) {
+      where.push("sender_number LIKE ?");
+      params.push(`%${filters.sender}%`);
+    }
+
+    if (filters.keyword) {
+      where.push("message_text LIKE ?");
+      params.push(`%${filters.keyword}%`);
+    }
+
+    const limit = Number(filters.limit || 100);
+
+    const sql = `
+      SELECT
+        id,
+        device_host,
+        queried_port,
+        message_datetime,
+        sender_number,
+        message_text,
+        port_info,
+        imported_at
+      FROM sms_messages
+      WHERE ${where.join(" AND ")}
+      ORDER BY message_datetime DESC, id DESC
+      LIMIT ?
+    `;
+
+    const [rows] = await conn.execute(sql, [...params, limit]);
+
+    const normalizedRows = rows.map((row) => ({
+      ...row,
+      message_datetime: row.message_datetime
+        ? new Date(row.message_datetime).toLocaleString()
+        : "",
+      imported_at: row.imported_at
+        ? new Date(row.imported_at).toLocaleString()
+        : ""
+    }));
+
+    return {
+      ok: true,
+      rows: normalizedRows
+    };
+  } catch (error) {
+    throw new Error(
+      `Failed to load today's incoming SMS: ${
         error instanceof Error ? error.message : String(error)
       }`
     );

@@ -27,6 +27,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
     saveSentMessage: (payload) => ipcRenderer.invoke("db:save-sent-message", payload),
     updateSentMessageStatus: (payload) =>
       ipcRenderer.invoke("db:update-sent-message-status", payload),
-    getSentMessages: (filters) => ipcRenderer.invoke("db:get-sent-messages", filters)
+    getSentMessages: (filters) => ipcRenderer.invoke("db:get-sent-messages", filters),
+    getTodayIncomingMessages: (filters) =>
+      ipcRenderer.invoke("db:get-today-incoming-messages", filters)
+  },
+  notification: {
+    newSms: (payload) => ipcRenderer.invoke("notify:new-sms", payload)
   }
 });

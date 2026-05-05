@@ -54,6 +54,17 @@ type SentSmsRow = {
   updated_at: string;
 };
 
+type IncomingTodayRow = {
+  id: number;
+  device_host: string;
+  queried_port: number;
+  message_datetime: string;
+  sender_number: string | null;
+  message_text: string;
+  port_info: string | null;
+  imported_at: string;
+};
+
 const darkTheme = createTheme({
   palette: {
     mode: "dark",
@@ -128,6 +139,15 @@ function App() {
   const [sentLoading, setSentLoading] = useState(false);
   const [sentStatusFilter, setSentStatusFilter] = useState("");
   const [sentKeywordFilter, setSentKeywordFilter] = useState("");
+  const [watchdogEnabled, setWatchdogEnabled] = useState(false);
+  const [watchdogIntervalSeconds, setWatchdogIntervalSeconds] = useState("30");
+  const watchdogRunningRef = useRef(false);
+  const [watchdogChecking, setWatchdogChecking] = useState(false);
+  const [incomingTodayMessages, setIncomingTodayMessages] = useState<IncomingTodayRow[]>([]);
+  const [incomingTodayLoading, setIncomingTodayLoading] = useState(false);
+  const [incomingTodayKeyword, setIncomingTodayKeyword] = useState("");
+  const [incomingTodayPort, setIncomingTodayPort] = useState("");
+  const watchdogBaselineDoneRef = useRef(false);
 
   useEffect(() => {
     async function loadSavedSettingsAndHistory() {
@@ -144,6 +164,7 @@ function App() {
         }
 
         await loadSentMessages();
+        await loadIncomingTodayMessages();
       } catch (error) {
         console.error("Failed to load startup data", error);
         setErrorText(
@@ -166,6 +187,28 @@ function App() {
 
     return () => window.clearTimeout(timer);
   }, [errorText, successText]);
+
+  useEffect(() => {
+    if (!watchdogEnabled) {
+      return;
+    }
+
+    const seconds = Number(watchdogIntervalSeconds || 30);
+    const intervalMs = Math.max(seconds, 10) * 1000;
+
+    const timer = window.setInterval(() => {
+      runSmsWatchdogCheck();
+    }, intervalMs);
+
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    watchdogEnabled,
+    watchdogIntervalSeconds,
+    config.baseUrl,
+    config.username,
+    config.password
+  ]);
 
   function handlePortClick(portNumber: number) {
     const nextPort = selectedPortFilter === portNumber ? null : portNumber;
@@ -235,6 +278,101 @@ function App() {
     }
   }
 
+  async function loadIncomingTodayMessages() {
+    if (!window.electronAPI?.database?.getTodayIncomingMessages) {
+      console.warn("Incoming today API is not available yet.");
+      return;
+    }
+
+    setIncomingTodayLoading(true);
+
+    try {
+      const result = await window.electronAPI.database.getTodayIncomingMessages({
+        port: incomingTodayPort.trim() || undefined,
+        keyword: incomingTodayKeyword.trim() || undefined,
+        limit: 100
+      });
+
+      if (result.ok) {
+        setIncomingTodayMessages(result.rows);
+      }
+    } catch (error) {
+      setErrorText(
+        error instanceof Error
+          ? error.message
+          : "Failed to load today's incoming SMS"
+      );
+    } finally {
+      setIncomingTodayLoading(false);
+    }
+  }
+
+  async function runSmsWatchdogCheck() {
+    if (watchdogRunningRef.current) {
+      return;
+    }
+
+    watchdogRunningRef.current = true;
+    setWatchdogChecking(true);
+
+    try {
+      const portStates = await getPortStates(config);
+
+      const sms = await getAllSms(
+        config,
+        portStates.length,
+        undefined,
+        () => false
+      );
+
+      const dashboardPorts = buildDashboardPorts(portStates, sms);
+
+      setPorts(dashboardPorts);
+      setMessages(sms);
+
+      const dbResult = await window.electronAPI.database.saveMessages({
+        deviceHost: config.baseUrl.replace(/^https?:\/\//, ""),
+        messages: sms.map((msg) => ({
+          queriedPort: msg.queriedPort,
+          dateTime: msg.dateTime,
+          number: msg.number,
+          message: msg.message,
+          portInfo: msg.portInfo
+        }))
+      });
+
+      await loadIncomingTodayMessages();
+
+      if (!watchdogBaselineDoneRef.current) {
+        watchdogBaselineDoneRef.current = true;
+
+        if (dbResult.inserted > 0) {
+          setSuccessText(
+            `Watchdog baseline loaded ${dbResult.inserted} existing SMS. Notifications will start from the next check.`
+          );
+        }
+      } else if (dbResult.inserted > 0) {
+        await window.electronAPI.notification.newSms({
+          count: dbResult.inserted,
+          deviceHost: config.baseUrl.replace(/^https?:\/\//, "")
+        });
+
+        setSuccessText(`Watchdog found ${dbResult.inserted} new SMS.`);
+      }
+
+      setLastSync(new Date().toLocaleString());
+      setConnected(true);
+    } catch (error) {
+      console.error("Watchdog check failed:", error);
+      setErrorText(
+        error instanceof Error ? error.message : "Watchdog check failed"
+      );
+    } finally {
+      watchdogRunningRef.current = false;
+      setWatchdogChecking(false);
+    }
+  }
+
   async function handleConnect() {
     cancelScanRef.current = false;
     setIsCanceled(false);
@@ -300,6 +438,8 @@ function App() {
           portInfo: msg.portInfo
         }))
       });
+
+      await loadIncomingTodayMessages();
 
       setSuccessText(
         `Loaded ${sms.length} messages. Saved ${dbResult.inserted} new, skipped ${dbResult.skipped} duplicates.`
@@ -527,6 +667,59 @@ function App() {
               }
             />
 
+            <Paper
+              elevation={0}
+              sx={{
+                p: 2,
+                bgcolor: "background.paper",
+                border: "1px solid rgba(255,255,255,0.06)"
+              }}
+            >
+              <Stack
+                direction={{ xs: "column", md: "row" }}
+                spacing={1.5}
+                justifyContent="space-between"
+                alignItems={{ xs: "flex-start", md: "center" }}
+              >
+                <Box>
+                  <Typography variant="h6" fontWeight={700}>
+                    SMS Watchdog
+                  </Typography>
+                  <Typography variant="body2" sx={{ opacity: 0.65 }}>
+                    Automatically checks for new incoming SMS and shows desktop notifications.
+                  </Typography>
+                </Box>
+
+                <Stack direction={{ xs: "column", md: "row" }} spacing={1}>
+                  <TextField
+                    size="small"
+                    label="Interval seconds"
+                    value={watchdogIntervalSeconds}
+                    onChange={(e) => setWatchdogIntervalSeconds(e.target.value)}
+                    sx={{ width: { xs: "100%", md: 160 } }}
+                  />
+
+                  <Button
+                    variant={watchdogEnabled ? "contained" : "outlined"}
+                    color={watchdogEnabled ? "success" : "primary"}
+                    size="small"
+                    onClick={() => setWatchdogEnabled((prev) => !prev)}
+                  >
+                    {watchdogEnabled ? "Watchdog On" : "Start Watchdog"}
+                  </Button>
+
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={runSmsWatchdogCheck}
+                    disabled={watchdogChecking}
+                  >
+                    {watchdogChecking ? "Checking..." : "Check Now"}
+                  </Button>
+                </Stack>
+              </Stack>
+            </Paper>
+
             <SendSmsPanel
               sendPort={sendPort}
               sendNumber={sendNumber}
@@ -679,6 +872,139 @@ function App() {
                         );
                       })}
                     </Box>
+                  </Paper>
+
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      p: 1.8,
+                      bgcolor: "background.paper",
+                      border: "1px solid rgba(255,255,255,0.06)"
+                    }}
+                  >
+                    <Stack spacing={1.5}>
+                      <Stack
+                        direction={{ xs: "column", md: "row" }}
+                        justifyContent="space-between"
+                        alignItems={{ xs: "flex-start", md: "center" }}
+                        spacing={1.5}
+                      >
+                        <Box>
+                          <Typography variant="h6" fontWeight={700}>
+                            Incoming SMS Today
+                          </Typography>
+                          <Typography variant="body2" sx={{ opacity: 0.65 }}>
+                            Incoming messages saved in MariaDB for today only.
+                          </Typography>
+                        </Box>
+
+                        <Stack direction={{ xs: "column", md: "row" }} spacing={1}>
+                          <TextField
+                            size="small"
+                            label="Port"
+                            placeholder="Example: 1"
+                            value={incomingTodayPort}
+                            onChange={(e) => setIncomingTodayPort(e.target.value)}
+                            sx={{ width: { xs: "100%", md: 120 } }}
+                          />
+
+                          <TextField
+                            size="small"
+                            label="Search"
+                            placeholder="sender or message"
+                            value={incomingTodayKeyword}
+                            onChange={(e) => setIncomingTodayKeyword(e.target.value)}
+                            sx={{ width: { xs: "100%", md: 220 } }}
+                          />
+
+                          <Button
+                            variant="outlined"
+                            size="small"
+                            onClick={loadIncomingTodayMessages}
+                            disabled={incomingTodayLoading}
+                          >
+                            {incomingTodayLoading ? "Loading..." : "Load"}
+                          </Button>
+                        </Stack>
+                      </Stack>
+
+                      <Box sx={{ overflowX: "auto" }}>
+                        <Box sx={{ minWidth: 860 }}>
+                          <Box
+                            sx={{
+                              display: "grid",
+                              gridTemplateColumns: "80px 170px 170px 1fr 170px",
+                              px: 1.5,
+                              py: 1,
+                              borderBottom: "1px solid rgba(255,255,255,0.08)",
+                              color: "rgba(255,255,255,0.65)",
+                              fontWeight: 600,
+                              fontSize: "0.78rem"
+                            }}
+                          >
+                            <Box>Port</Box>
+                            <Box>Date/Time</Box>
+                            <Box>Sender</Box>
+                            <Box>Message</Box>
+                            <Box>Imported</Box>
+                          </Box>
+
+                          {incomingTodayMessages.length === 0 ? (
+                            <Box sx={{ px: 2, py: 3 }}>
+                              <Typography variant="body2" sx={{ opacity: 0.65 }}>
+                                No incoming SMS found for today.
+                              </Typography>
+                            </Box>
+                          ) : (
+                            incomingTodayMessages.map((item) => (
+                              <Box
+                                key={item.id}
+                                sx={{
+                                  display: "grid",
+                                  gridTemplateColumns: "80px 170px 170px 1fr 170px",
+                                  px: 1.5,
+                                  py: 1.2,
+                                  borderBottom: "1px solid rgba(255,255,255,0.06)",
+                                  "&:hover": {
+                                    bgcolor: "rgba(255,255,255,0.04)"
+                                  }
+                                }}
+                              >
+                                <Box>
+                                  <Chip
+                                    label={`Port ${item.queried_port}`}
+                                    size="small"
+                                    sx={{
+                                      height: 22,
+                                      "& .MuiChip-label": {
+                                        px: 0.8,
+                                        fontSize: "0.72rem"
+                                      }
+                                    }}
+                                  />
+                                </Box>
+
+                                <Typography variant="body2" noWrap>
+                                  {item.message_datetime}
+                                </Typography>
+
+                                <Typography variant="body2" noWrap>
+                                  {item.sender_number || "-"}
+                                </Typography>
+
+                                <Typography variant="body2" noWrap>
+                                  {item.message_text}
+                                </Typography>
+
+                                <Typography variant="body2" noWrap>
+                                  {item.imported_at}
+                                </Typography>
+                              </Box>
+                            ))
+                          )}
+                        </Box>
+                      </Box>
+                    </Stack>
                   </Paper>
 
                   <Paper

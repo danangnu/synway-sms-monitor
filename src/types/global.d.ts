@@ -164,6 +164,34 @@ declare global {
             updated_at: string;
           }>;
         }>;
+        getTodayIncomingMessages: (filters?: {
+          port?: string;
+          sender?: string;
+          keyword?: string;
+          limit?: number;
+        }) => Promise<{
+          ok: boolean;
+          rows: Array<{
+            id: number;
+            device_host: string;
+            queried_port: number;
+            message_datetime: string;
+            sender_number: string | null;
+            message_text: string;
+            port_info: string | null;
+            imported_at: string;
+          }>;
+        }>;
+      };
+
+      notification: {
+        newSms: (payload: {
+          count: number;
+          deviceHost: string;
+        }) => Promise<{
+          ok: boolean;
+          supported: boolean;
+        }>;
       };
     };
   }
