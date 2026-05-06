@@ -7,6 +7,11 @@ import Sidebar from "./components/layout/Sidebar";
 import ConnectionPanel from "./components/connection/ConnectionPanel";
 import SendSmsPanel from "./components/sms/SendSmsPanel";
 import StatsCards from "./components/dashboard/StatsCards";
+import SmsWatchdogPanel from "./components/watchdog/SmsWatchdogPanel";
+import IncomingTodayPanel from "./components/sms/IncomingTodayPanel";
+import RecentSentSmsPanel from "./components/sms/RecentSentSmsPanel";
+import type { IncomingTodayRow } from "./components/sms/IncomingTodayPanel";
+import type { SentSmsRow } from "./components/sms/RecentSentSmsPanel";
 import {
   Box,
   Button,
@@ -18,7 +23,6 @@ import {
   InputBase,
   Paper,
   Stack,
-  TextField,
   ThemeProvider,
   Typography,
   createTheme
@@ -36,34 +40,6 @@ import {
   getPortStates,
   testSynwayConnection
 } from "./services/synwayApi";
-
-type SentSmsRow = {
-  id: number;
-  device_host: string;
-  send_port: number;
-  destination_number: string;
-  message_text: string;
-  encoding: string;
-  userid: string | null;
-  task_id: string | null;
-  gateway_result: string | null;
-  gateway_content: string | null;
-  send_status: string;
-  status_checked_at: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-type IncomingTodayRow = {
-  id: number;
-  device_host: string;
-  queried_port: number;
-  message_datetime: string;
-  sender_number: string | null;
-  message_text: string;
-  port_info: string | null;
-  imported_at: string;
-};
 
 const darkTheme = createTheme({
   palette: {
@@ -667,58 +643,14 @@ function App() {
               }
             />
 
-            <Paper
-              elevation={0}
-              sx={{
-                p: 2,
-                bgcolor: "background.paper",
-                border: "1px solid rgba(255,255,255,0.06)"
-              }}
-            >
-              <Stack
-                direction={{ xs: "column", md: "row" }}
-                spacing={1.5}
-                justifyContent="space-between"
-                alignItems={{ xs: "flex-start", md: "center" }}
-              >
-                <Box>
-                  <Typography variant="h6" fontWeight={700}>
-                    SMS Watchdog
-                  </Typography>
-                  <Typography variant="body2" sx={{ opacity: 0.65 }}>
-                    Automatically checks for new incoming SMS and shows desktop notifications.
-                  </Typography>
-                </Box>
-
-                <Stack direction={{ xs: "column", md: "row" }} spacing={1}>
-                  <TextField
-                    size="small"
-                    label="Interval seconds"
-                    value={watchdogIntervalSeconds}
-                    onChange={(e) => setWatchdogIntervalSeconds(e.target.value)}
-                    sx={{ width: { xs: "100%", md: 160 } }}
-                  />
-
-                  <Button
-                    variant={watchdogEnabled ? "contained" : "outlined"}
-                    color={watchdogEnabled ? "success" : "primary"}
-                    size="small"
-                    onClick={() => setWatchdogEnabled((prev) => !prev)}
-                  >
-                    {watchdogEnabled ? "Watchdog On" : "Start Watchdog"}
-                  </Button>
-
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    onClick={runSmsWatchdogCheck}
-                    disabled={watchdogChecking}
-                  >
-                    {watchdogChecking ? "Checking..." : "Check Now"}
-                  </Button>
-                </Stack>
-              </Stack>
-            </Paper>
+            <SmsWatchdogPanel
+              enabled={watchdogEnabled}
+              checking={watchdogChecking}
+              intervalSeconds={watchdogIntervalSeconds}
+              onIntervalSecondsChange={setWatchdogIntervalSeconds}
+              onToggle={() => setWatchdogEnabled((prev) => !prev)}
+              onCheckNow={runSmsWatchdogCheck}
+            />
 
             <SendSmsPanel
               sendPort={sendPort}
@@ -874,138 +806,15 @@ function App() {
                     </Box>
                   </Paper>
 
-                  <Paper
-                    elevation={0}
-                    sx={{
-                      p: 1.8,
-                      bgcolor: "background.paper",
-                      border: "1px solid rgba(255,255,255,0.06)"
-                    }}
-                  >
-                    <Stack spacing={1.5}>
-                      <Stack
-                        direction={{ xs: "column", md: "row" }}
-                        justifyContent="space-between"
-                        alignItems={{ xs: "flex-start", md: "center" }}
-                        spacing={1.5}
-                      >
-                        <Box>
-                          <Typography variant="h6" fontWeight={700}>
-                            Incoming SMS Today
-                          </Typography>
-                          <Typography variant="body2" sx={{ opacity: 0.65 }}>
-                            Incoming messages saved in MariaDB for today only.
-                          </Typography>
-                        </Box>
-
-                        <Stack direction={{ xs: "column", md: "row" }} spacing={1}>
-                          <TextField
-                            size="small"
-                            label="Port"
-                            placeholder="Example: 1"
-                            value={incomingTodayPort}
-                            onChange={(e) => setIncomingTodayPort(e.target.value)}
-                            sx={{ width: { xs: "100%", md: 120 } }}
-                          />
-
-                          <TextField
-                            size="small"
-                            label="Search"
-                            placeholder="sender or message"
-                            value={incomingTodayKeyword}
-                            onChange={(e) => setIncomingTodayKeyword(e.target.value)}
-                            sx={{ width: { xs: "100%", md: 220 } }}
-                          />
-
-                          <Button
-                            variant="outlined"
-                            size="small"
-                            onClick={loadIncomingTodayMessages}
-                            disabled={incomingTodayLoading}
-                          >
-                            {incomingTodayLoading ? "Loading..." : "Load"}
-                          </Button>
-                        </Stack>
-                      </Stack>
-
-                      <Box sx={{ overflowX: "auto" }}>
-                        <Box sx={{ minWidth: 860 }}>
-                          <Box
-                            sx={{
-                              display: "grid",
-                              gridTemplateColumns: "80px 170px 170px 1fr 170px",
-                              px: 1.5,
-                              py: 1,
-                              borderBottom: "1px solid rgba(255,255,255,0.08)",
-                              color: "rgba(255,255,255,0.65)",
-                              fontWeight: 600,
-                              fontSize: "0.78rem"
-                            }}
-                          >
-                            <Box>Port</Box>
-                            <Box>Date/Time</Box>
-                            <Box>Sender</Box>
-                            <Box>Message</Box>
-                            <Box>Imported</Box>
-                          </Box>
-
-                          {incomingTodayMessages.length === 0 ? (
-                            <Box sx={{ px: 2, py: 3 }}>
-                              <Typography variant="body2" sx={{ opacity: 0.65 }}>
-                                No incoming SMS found for today.
-                              </Typography>
-                            </Box>
-                          ) : (
-                            incomingTodayMessages.map((item) => (
-                              <Box
-                                key={item.id}
-                                sx={{
-                                  display: "grid",
-                                  gridTemplateColumns: "80px 170px 170px 1fr 170px",
-                                  px: 1.5,
-                                  py: 1.2,
-                                  borderBottom: "1px solid rgba(255,255,255,0.06)",
-                                  "&:hover": {
-                                    bgcolor: "rgba(255,255,255,0.04)"
-                                  }
-                                }}
-                              >
-                                <Box>
-                                  <Chip
-                                    label={`Port ${item.queried_port}`}
-                                    size="small"
-                                    sx={{
-                                      height: 22,
-                                      "& .MuiChip-label": {
-                                        px: 0.8,
-                                        fontSize: "0.72rem"
-                                      }
-                                    }}
-                                  />
-                                </Box>
-
-                                <Typography variant="body2" noWrap>
-                                  {item.message_datetime}
-                                </Typography>
-
-                                <Typography variant="body2" noWrap>
-                                  {item.sender_number || "-"}
-                                </Typography>
-
-                                <Typography variant="body2" noWrap>
-                                  {item.message_text}
-                                </Typography>
-
-                                <Typography variant="body2" noWrap>
-                                  {item.imported_at}
-                                </Typography>
-                              </Box>
-                            ))
-                          )}
-                        </Box>
-                      </Box>
-                    </Stack>
-                  </Paper>
+                  <IncomingTodayPanel
+                    messages={incomingTodayMessages}
+                    loading={incomingTodayLoading}
+                    port={incomingTodayPort}
+                    keyword={incomingTodayKeyword}
+                    onPortChange={setIncomingTodayPort}
+                    onKeywordChange={setIncomingTodayKeyword}
+                    onLoad={loadIncomingTodayMessages}
+                  />
 
                   <Paper
                     elevation={0}
@@ -1129,142 +938,15 @@ function App() {
                     </Box>
                   </Paper>
 
-                  <Paper
-                    elevation={0}
-                    sx={{
-                      p: 1.8,
-                      bgcolor: "background.paper",
-                      border: "1px solid rgba(255,255,255,0.06)"
-                    }}
-                  >
-                    <Stack spacing={1.5}>
-                      <Stack
-                        direction={{ xs: "column", md: "row" }}
-                        justifyContent="space-between"
-                        alignItems={{ xs: "flex-start", md: "center" }}
-                        spacing={1.5}
-                      >
-                        <Box>
-                          <Typography variant="h6" fontWeight={700}>
-                            Recent Sent SMS
-                          </Typography>
-                          <Typography variant="body2" sx={{ opacity: 0.65 }}>
-                            Last 100 outbound SMS records saved in MariaDB.
-                          </Typography>
-                        </Box>
-
-                        <Stack direction={{ xs: "column", md: "row" }} spacing={1}>
-                          <TextField
-                            size="small"
-                            label="Status"
-                            placeholder="success / failed / submitted"
-                            value={sentStatusFilter}
-                            onChange={(e) => setSentStatusFilter(e.target.value)}
-                            sx={{ width: { xs: "100%", md: 190 } }}
-                          />
-
-                          <TextField
-                            size="small"
-                            label="Search"
-                            placeholder="number or message"
-                            value={sentKeywordFilter}
-                            onChange={(e) => setSentKeywordFilter(e.target.value)}
-                            sx={{ width: { xs: "100%", md: 220 } }}
-                          />
-
-                          <Button
-                            variant="outlined"
-                            size="small"
-                            onClick={loadSentMessages}
-                            disabled={sentLoading}
-                          >
-                            {sentLoading ? "Loading..." : "Load"}
-                          </Button>
-                        </Stack>
-                      </Stack>
-
-                      <Box sx={{ overflowX: "auto" }}>
-                        <Box sx={{ minWidth: 960 }}>
-                          <Box
-                            sx={{
-                              display: "grid",
-                              gridTemplateColumns: "100px 70px 150px 1fr 140px 160px",
-                              px: 1.5,
-                              py: 1,
-                              borderBottom: "1px solid rgba(255,255,255,0.08)",
-                              color: "rgba(255,255,255,0.65)",
-                              fontWeight: 600,
-                              fontSize: "0.78rem"
-                            }}
-                          >
-                            <Box>Status</Box>
-                            <Box>Port</Box>
-                            <Box>Destination</Box>
-                            <Box>Message</Box>
-                            <Box>Task ID</Box>
-                            <Box>Created</Box>
-                          </Box>
-
-                          {sentMessages.length === 0 ? (
-                            <Box sx={{ px: 2, py: 3 }}>
-                              <Typography variant="body2" sx={{ opacity: 0.65 }}>
-                                No sent SMS history found.
-                              </Typography>
-                            </Box>
-                          ) : (
-                            sentMessages.map((item) => (
-                              <Box
-                                key={item.id}
-                                sx={{
-                                  display: "grid",
-                                  gridTemplateColumns: "100px 70px 150px 1fr 140px 160px",
-                                  px: 1.5,
-                                  py: 1.2,
-                                  borderBottom: "1px solid rgba(255,255,255,0.06)",
-                                  "&:hover": {
-                                    bgcolor: "rgba(255,255,255,0.04)"
-                                  }
-                                }}
-                              >
-                                <Box>
-                                  <Chip
-                                    label={item.send_status}
-                                    size="small"
-                                    color={
-                                      item.send_status === "success"
-                                        ? "success"
-                                        : item.send_status === "failed"
-                                          ? "error"
-                                          : "warning"
-                                    }
-                                    sx={{
-                                      height: 22,
-                                      "& .MuiChip-label": {
-                                        px: 0.8,
-                                        fontSize: "0.72rem"
-                                      }
-                                    }}
-                                  />
-                                </Box>
-
-                                <Typography variant="body2">{item.send_port}</Typography>
-                                <Typography variant="body2">{item.destination_number}</Typography>
-                                <Typography variant="body2" noWrap>
-                                  {item.message_text}
-                                </Typography>
-                                <Typography variant="body2" noWrap>
-                                  {item.task_id || "-"}
-                                </Typography>
-                                <Typography variant="body2" noWrap>
-                                  {item.created_at}
-                                </Typography>
-                              </Box>
-                            ))
-                          )}
-                        </Box>
-                      </Box>
-                    </Stack>
-                  </Paper>
+                  <RecentSentSmsPanel
+                    messages={sentMessages}
+                    loading={sentLoading}
+                    statusFilter={sentStatusFilter}
+                    keywordFilter={sentKeywordFilter}
+                    onStatusFilterChange={setSentStatusFilter}
+                    onKeywordFilterChange={setSentKeywordFilter}
+                    onLoad={loadSentMessages}
+                  />
                 </Stack>
               </Box>
 

@@ -56,7 +56,14 @@ export default function Sidebar({
       }}
     >
       <Box sx={{ p: 2 }}>
-        <Stack direction="row" spacing={1.2} alignItems="center">
+        <Box
+          sx={{
+            display: "flex",
+            flexDirection: "row",
+            gap: 1.2,
+            alignItems: "center"
+          }}
+        >
           <Avatar sx={{ bgcolor: "primary.main", width: 34, height: 34 }}>
             <RouterRoundedIcon sx={{ fontSize: 18 }} />
           </Avatar>
@@ -72,7 +79,7 @@ export default function Sidebar({
               Monitor
             </Typography>
           </Box>
-        </Stack>
+        </Box>
       </Box>
 
       <Divider sx={{ borderColor: "rgba(255,255,255,0.06)" }} />
