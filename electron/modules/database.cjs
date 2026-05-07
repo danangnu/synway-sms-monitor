@@ -336,6 +336,7 @@ function registerDatabaseHandlers(ipcMain, app) {
           device_host,
           queried_port,
           message_datetime,
+          DATE_FORMAT(message_datetime, '%Y%m%d%H%i%s') AS synway_datetime,
           sender_number,
           message_text,
           port_info,
@@ -359,6 +360,98 @@ function registerDatabaseHandlers(ipcMain, app) {
     } catch (error) {
       throw new Error(
         `Failed to load today's incoming SMS: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    } finally {
+      if (conn) {
+        await conn.end();
+      }
+    }
+  });
+
+  ipcMain.handle("db:delete-incoming-message", async (_event, payload) => {
+    let conn;
+
+    try {
+      conn = await getDbConnection(app);
+
+      const [result] = await conn.execute(
+        "DELETE FROM sms_messages WHERE id = ?",
+        [Number(payload.id)]
+      );
+
+      return {
+        ok: true,
+        affectedRows: result.affectedRows
+      };
+    } catch (error) {
+      throw new Error(
+        `Failed to delete incoming SMS: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    } finally {
+      if (conn) {
+        await conn.end();
+      }
+    }
+  });
+
+  ipcMain.handle("db:delete-sent-message", async (_event, payload) => {
+    let conn;
+
+    try {
+      conn = await getDbConnection(app);
+
+      const [result] = await conn.execute(
+        "DELETE FROM sms_sent_messages WHERE id = ?",
+        [Number(payload.id)]
+      );
+
+      return {
+        ok: true,
+        affectedRows: result.affectedRows
+      };
+    } catch (error) {
+      throw new Error(
+        `Failed to delete sent SMS: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    } finally {
+      if (conn) {
+        await conn.end();
+      }
+    }
+  });
+
+  ipcMain.handle("db:delete-incoming-message-by-fields", async (_event, payload) => {
+    let conn;
+
+    try {
+      conn = await getDbConnection(app);
+
+      const messageHash = buildMessageHash({
+        device_host: payload.deviceHost,
+        queried_port: payload.queriedPort,
+        dateTime: payload.dateTime,
+        number: payload.number,
+        message: payload.message
+      });
+
+      const [result] = await conn.execute(
+        "DELETE FROM sms_messages WHERE message_hash = ?",
+        [messageHash]
+      );
+
+      return {
+        ok: true,
+        affectedRows: result.affectedRows
+      };
+    } catch (error) {
+      throw new Error(
+        `Failed to delete incoming SMS: ${
           error instanceof Error ? error.message : String(error)
         }`
       );

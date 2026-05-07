@@ -20,7 +20,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     sendSms: (config, payload) =>
       ipcRenderer.invoke("synway:send-sms", config, payload),
     querySentSms: (config, payload) =>
-      ipcRenderer.invoke("synway:query-sent-sms", config, payload)
+      ipcRenderer.invoke("synway:query-sent-sms", config, payload),
+    deleteRxSms: (config, payload) =>
+      ipcRenderer.invoke("synway:delete-rx-sms", config, payload)
   },
   database: {
     saveMessages: (payload) => ipcRenderer.invoke("db:save-messages", payload),
@@ -29,7 +31,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("db:update-sent-message-status", payload),
     getSentMessages: (filters) => ipcRenderer.invoke("db:get-sent-messages", filters),
     getTodayIncomingMessages: (filters) =>
-      ipcRenderer.invoke("db:get-today-incoming-messages", filters)
+      ipcRenderer.invoke("db:get-today-incoming-messages", filters),
+    deleteIncomingMessage: (payload) =>
+      ipcRenderer.invoke("db:delete-incoming-message", payload),
+    deleteSentMessage: (payload) =>
+      ipcRenderer.invoke("db:delete-sent-message", payload),
+    deleteIncomingMessageByFields: (payload) =>
+      ipcRenderer.invoke("db:delete-incoming-message-by-fields", payload)
   },
   notification: {
     newSms: (payload) => ipcRenderer.invoke("notify:new-sms", payload)

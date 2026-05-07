@@ -33,6 +33,7 @@ type RecentSentSmsPanelProps = {
   onStatusFilterChange: (value: string) => void;
   onKeywordFilterChange: (value: string) => void;
   onLoad: () => void;
+  onDelete?: (id: number) => void;
 };
 
 export default function RecentSentSmsPanel({
@@ -42,7 +43,8 @@ export default function RecentSentSmsPanel({
   keywordFilter,
   onStatusFilterChange,
   onKeywordFilterChange,
-  onLoad
+  onLoad,
+  onDelete
 }: RecentSentSmsPanelProps) {
   return (
     <Paper
@@ -104,7 +106,7 @@ export default function RecentSentSmsPanel({
             <Box
               sx={{
                 display: "grid",
-                gridTemplateColumns: "100px 70px 150px 1fr 140px 160px",
+                gridTemplateColumns: "100px 70px 150px 1fr 140px 160px 90px",
                 px: 1.5,
                 py: 1,
                 borderBottom: "1px solid rgba(255,255,255,0.08)",
@@ -119,6 +121,7 @@ export default function RecentSentSmsPanel({
               <Box>Message</Box>
               <Box>Task ID</Box>
               <Box>Created</Box>
+              <Box>Action</Box>
             </Box>
 
             {messages.length === 0 ? (
@@ -133,7 +136,7 @@ export default function RecentSentSmsPanel({
                   key={item.id}
                   sx={{
                     display: "grid",
-                    gridTemplateColumns: "100px 70px 150px 1fr 140px 160px",
+                    gridTemplateColumns: "100px 70px 150px 1fr 140px 160px 90px",
                     px: 1.5,
                     py: 1.2,
                     borderBottom: "1px solid rgba(255,255,255,0.06)",
@@ -176,6 +179,16 @@ export default function RecentSentSmsPanel({
                   <Typography variant="body2" noWrap>
                     {item.created_at}
                   </Typography>
+                  <Box>
+                    <Button
+                      size="small"
+                      color="error"
+                      variant="outlined"
+                      onClick={() => onDelete?.(item.id)}
+                    >
+                      Delete
+                    </Button>
+                  </Box>
                 </Box>
               ))
             )}

@@ -486,6 +486,130 @@ function App() {
     }
   }
 
+  async function handleDeleteIncomingTodayMessage(item: IncomingTodayRow) {
+    const confirmed = window.confirm(
+      "Delete this SMS from Synway device and database?"
+    );
+
+    if (!confirmed) return;
+
+    try {
+      const synwayResult = await window.electronAPI.synway.deleteRxSms(config, {
+        port: item.queried_port,
+        number: item.sender_number || "",
+        dateTime: item.synway_datetime
+      });
+
+      if (synwayResult.result !== "ok") {
+        throw new Error(
+          synwayResult.content || "Failed to delete SMS from Synway device"
+        );
+      }
+
+      const dbResult = await window.electronAPI.database.deleteIncomingMessage({
+        id: item.id
+      });
+
+      await loadIncomingTodayMessages();
+
+      setMessages((prev) =>
+        prev.filter(
+          (msg) =>
+            !(
+              msg.queriedPort === item.queried_port &&
+              msg.number === item.sender_number &&
+              msg.message === item.message_text
+            )
+        )
+      );
+
+      if (dbResult.affectedRows > 0) {
+        setSuccessText("Incoming SMS deleted from Synway device and database.");
+      } else {
+        setSuccessText("SMS deleted from Synway device. Database row was not found.");
+      }
+    } catch (error) {
+      setErrorText(
+        error instanceof Error
+          ? error.message
+          : "Failed to delete incoming SMS"
+      );
+    }
+  }
+
+  async function handleDeleteSentMessage(id: number) {
+    const confirmed = window.confirm("Delete this sent SMS from database?");
+
+    if (!confirmed) return;
+
+    try {
+      const result = await window.electronAPI.database.deleteSentMessage({ id });
+
+      if (result.affectedRows > 0) {
+        setSuccessText("Sent SMS deleted.");
+        await loadSentMessages();
+        return;
+      }
+
+      setErrorText("Sent SMS was not found.");
+    } catch (error) {
+      setErrorText(
+        error instanceof Error ? error.message : "Failed to delete sent SMS"
+      );
+    }
+  }
+
+  async function handleDeleteScannedMessage(msg: SynwaySmsMessage) {
+    const confirmed = window.confirm(
+      "Delete this SMS from Synway device and database?"
+    );
+
+    if (!confirmed) return;
+
+    try {
+      const synwayResult = await window.electronAPI.synway.deleteRxSms(config, {
+        port: msg.queriedPort,
+        number: msg.number,
+        dateTime: msg.dateTime
+      });
+
+      if (synwayResult.result !== "ok") {
+        throw new Error(
+          synwayResult.content || "Failed to delete SMS from Synway device"
+        );
+      }
+
+      const dbResult =
+        await window.electronAPI.database.deleteIncomingMessageByFields({
+          deviceHost: config.baseUrl.replace(/^https?:\/\//, ""),
+          queriedPort: msg.queriedPort,
+          dateTime: msg.dateTime,
+          number: msg.number,
+          message: msg.message
+        });
+
+      setMessages((prev) => prev.filter((item) => item.id !== msg.id));
+
+      if (selectedMessage?.id === msg.id) {
+        setSelectedMessage(null);
+      }
+
+      await loadIncomingTodayMessages();
+
+      if (dbResult.affectedRows > 0) {
+        setSuccessText("SMS deleted from Synway device and database.");
+      } else {
+        setSuccessText(
+          "SMS deleted from Synway device. Database record was not found."
+        );
+      }
+    } catch (error) {
+      setErrorText(
+        error instanceof Error ? error.message : "Failed to delete SMS"
+      );
+    }
+  }
+
   function handleStopRefresh() {
     cancelScanRef.current = true;
   }
@@ -814,6 +938,7 @@ function App() {
                     onPortChange={setIncomingTodayPort}
                     onKeywordChange={setIncomingTodayKeyword}
                     onLoad={loadIncomingTodayMessages}
+                    onDelete={handleDeleteIncomingTodayMessage}
                   />
 
                   <Paper
@@ -869,7 +994,7 @@ function App() {
                         <Box
                           sx={{
                             display: "grid",
-                            gridTemplateColumns: "80px 165px 170px 1fr",
+                            gridTemplateColumns: "80px 165px 170px 1fr 90px",
                             px: 1.5,
                             py: 1,
                             borderBottom: "1px solid rgba(255,255,255,0.08)",
@@ -882,6 +1007,7 @@ function App() {
                           <Box>Date/Time</Box>
                           <Box>Sender</Box>
                           <Box>Message</Box>
+                          <Box>Action</Box>
                         </Box>
 
                         {filteredMessages.length === 0 ? (
@@ -899,7 +1025,7 @@ function App() {
                               onClick={() => setSelectedMessage(msg)}
                               sx={{
                                 display: "grid",
-                                gridTemplateColumns: "80px 165px 170px 1fr",
+                                gridTemplateColumns: "80px 165px 170px 1fr 90px",
                                 px: 1.5,
                                 py: 1.2,
                                 borderBottom: "1px solid rgba(255,255,255,0.06)",
@@ -931,6 +1057,19 @@ function App() {
                               <Typography variant="body2" noWrap>
                                 {msg.message}
                               </Typography>
+                              <Box>
+                                <Button
+                                  size="small"
+                                  color="error"
+                                  variant="outlined"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteScannedMessage(msg);
+                                  }}
+                                >
+                                  Delete
+                                </Button>
+                              </Box>
                             </Box>
                           ))
                         )}
@@ -946,6 +1085,7 @@ function App() {
                     onStatusFilterChange={setSentStatusFilter}
                     onKeywordFilterChange={setSentKeywordFilter}
                     onLoad={loadSentMessages}
+                    onDelete={handleDeleteSentMessage}
                   />
                 </Stack>
               </Box>

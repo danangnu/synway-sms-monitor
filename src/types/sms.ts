@@ -22,6 +22,7 @@ export type IncomingTodayRow = {
   device_host: string;
   queried_port: number;
   message_datetime: string;
+  synway_datetime: string;
   sender_number: string | null;
   message_text: string;
   port_info: string | null;

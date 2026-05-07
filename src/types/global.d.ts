@@ -97,6 +97,21 @@ declare global {
           result: string;
           content: string;
         }>;
+        deleteRxSms: (
+          config: {
+            baseUrl: string;
+            username: string;
+            password: string;
+          },
+          payload: {
+            port: number | string;
+            number: string;
+            dateTime: string;
+          }
+        ) => Promise<{
+          result: string;
+          content: string;
+        }>;
       };
       database: {
         saveMessages: (payload: {
@@ -176,11 +191,34 @@ declare global {
             device_host: string;
             queried_port: number;
             message_datetime: string;
+            synway_datetime: string;
             sender_number: string | null;
             message_text: string;
             port_info: string | null;
             imported_at: string;
           }>;
+        }>;
+        deleteIncomingMessage: (payload: {
+          id: number;
+        }) => Promise<{
+          ok: boolean;
+          affectedRows: number;
+        }>;
+        deleteSentMessage: (payload: {
+          id: number;
+        }) => Promise<{
+          ok: boolean;
+          affectedRows: number;
+        }>;
+        deleteIncomingMessageByFields: (payload: {
+          deviceHost: string;
+          queriedPort: number;
+          dateTime: string;
+          number: string;
+          message: string;
+        }) => Promise<{
+          ok: boolean;
+          affectedRows: number;
         }>;
       };
 

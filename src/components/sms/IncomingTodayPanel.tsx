@@ -13,6 +13,7 @@ export type IncomingTodayRow = {
   device_host: string;
   queried_port: number;
   message_datetime: string;
+  synway_datetime: string;
   sender_number: string | null;
   message_text: string;
   port_info: string | null;
@@ -27,6 +28,7 @@ type IncomingTodayPanelProps = {
   onPortChange: (value: string) => void;
   onKeywordChange: (value: string) => void;
   onLoad: () => void;
+  onDelete?: (item: IncomingTodayRow) => void;
 };
 
 export default function IncomingTodayPanel({
@@ -36,7 +38,8 @@ export default function IncomingTodayPanel({
   keyword,
   onPortChange,
   onKeywordChange,
-  onLoad
+  onLoad,
+  onDelete
 }: IncomingTodayPanelProps) {
   return (
     <Paper
@@ -98,7 +101,7 @@ export default function IncomingTodayPanel({
             <Box
               sx={{
                 display: "grid",
-                gridTemplateColumns: "80px 170px 170px 1fr 170px",
+                gridTemplateColumns: "80px 170px 170px 1fr 170px 90px",
                 px: 1.5,
                 py: 1,
                 borderBottom: "1px solid rgba(255,255,255,0.08)",
@@ -112,6 +115,7 @@ export default function IncomingTodayPanel({
               <Box>Sender</Box>
               <Box>Message</Box>
               <Box>Imported</Box>
+              <Box>Action</Box>
             </Box>
 
             {messages.length === 0 ? (
@@ -126,7 +130,7 @@ export default function IncomingTodayPanel({
                   key={item.id}
                   sx={{
                     display: "grid",
-                    gridTemplateColumns: "80px 170px 170px 1fr 170px",
+                    gridTemplateColumns: "80px 170px 170px 1fr 170px 90px",
                     px: 1.5,
                     py: 1.2,
                     borderBottom: "1px solid rgba(255,255,255,0.06)",
@@ -164,6 +168,16 @@ export default function IncomingTodayPanel({
                   <Typography variant="body2" noWrap>
                     {item.imported_at}
                   </Typography>
+                  <Box>
+                    <Button
+                      size="small"
+                      color="error"
+                      variant="outlined"
+                      onClick={() => onDelete?.(item)}
+                    >
+                      Delete
+                    </Button>
+                  </Box>
                 </Box>
               ))
             )}
