@@ -1,3 +1,4 @@
+import type { SentSmsRow } from "../../types/sms";
 import {
   Box,
   Button,
@@ -7,23 +8,6 @@ import {
   TextField,
   Typography
 } from "@mui/material";
-
-export type SentSmsRow = {
-  id: number;
-  device_host: string;
-  send_port: number;
-  destination_number: string;
-  message_text: string;
-  encoding: string;
-  userid: string | null;
-  task_id: string | null;
-  gateway_result: string | null;
-  gateway_content: string | null;
-  send_status: string;
-  status_checked_at: string | null;
-  created_at: string;
-  updated_at: string;
-};
 
 type RecentSentSmsPanelProps = {
   messages: SentSmsRow[];

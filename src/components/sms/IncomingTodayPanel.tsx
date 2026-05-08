@@ -1,3 +1,4 @@
+import type { IncomingTodayRow } from "../../types/sms";
 import {
   Box,
   Button,
@@ -7,18 +8,6 @@ import {
   TextField,
   Typography
 } from "@mui/material";
-
-export type IncomingTodayRow = {
-  id: number;
-  device_host: string;
-  queried_port: number;
-  message_datetime: string;
-  synway_datetime: string;
-  sender_number: string | null;
-  message_text: string;
-  port_info: string | null;
-  imported_at: string;
-};
 
 type IncomingTodayPanelProps = {
   messages: IncomingTodayRow[];
