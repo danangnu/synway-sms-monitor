@@ -10,7 +10,7 @@ import {
 } from "@mui/material";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import type { DashboardPortCard } from "../../types/synway";
-import { getPortColor, getPortLabel } from "../../utils/portHelpers";
+// import { getPortColor, getPortLabel } from "../../utils/portHelpers";
 
 type PortMonitorPanelProps = {
   ports: DashboardPortCard[];
@@ -27,6 +27,18 @@ export default function PortMonitorPanel({
   onSearchChange,
   onPortClick
 }: PortMonitorPanelProps) {
+  const filteredPorts = ports.filter((port) => {
+    if (!search.trim()) return true;
+
+    const keyword = search.toLowerCase();
+
+    return (
+      String(port.port + 1).includes(keyword) ||
+      String(port.smsCount).includes(keyword) ||
+      port.connectionStatus.toLowerCase().includes(keyword)
+    );
+  });
+
   return (
     <Paper
       elevation={0}
@@ -83,7 +95,7 @@ export default function PortMonitorPanel({
           gap: 1.2
         }}
       >
-        {ports.map((port) => {
+        {filteredPorts.map((port) => {
           const isSelected = selectedPortFilter === port.port;
 
           return (
@@ -107,33 +119,56 @@ export default function PortMonitorPanel({
               }}
             >
               <CardContent sx={{ p: "12px !important" }}>
-                <Stack spacing={0.8}>
+                <Stack spacing={1.5}>
                   <Stack
-                    direction="row"
                     justifyContent="space-between"
                     alignItems="center"
                   >
                     <Typography fontWeight={700} sx={{ fontSize: "0.82rem" }}>
-                      Port {port.port}
+                      Port {port.port + 1}
                     </Typography>
 
                     <Chip
                       size="small"
-                      label={getPortLabel(port.state)}
-                      color={getPortColor(port.state)}
+                      label={
+                        port.connectionStatus === "connect"
+                          ? "Connect"
+                          : "Disconnect"
+                      }
+                      color={
+                        port.connectionStatus === "connect"
+                          ? "success"
+                          : "error"
+                      }
                       sx={{
-                        height: 22,
+                        height: 20,
                         "& .MuiChip-label": {
                           px: 0.8,
-                          fontSize: "0.72rem"
+                          fontSize: "0.68rem"
                         }
                       }}
                     />
                   </Stack>
 
-                  <Typography variant="body2" sx={{ opacity: 0.72 }}>
-                    SMS: {port.smsCount}
-                  </Typography>
+                  <Stack 
+                  // direction="row" 
+                  spacing={1} alignItems="center">
+
+                    <Typography variant="body2">
+                      SMS: {port.smsCount}
+                    </Typography>
+
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        fontWeight: 600,
+                        color: port.hasSms ? "#0077ff" : "#ffe600"
+                      }}
+                    >
+                      {port.hasSms ? "Has SMS" : "No SMS"}
+                    </Typography>
+
+                  </Stack>
 
                   <Typography
                     variant="caption"
@@ -146,9 +181,9 @@ export default function PortMonitorPanel({
                     {port.lastTime ? `Last: ${port.lastTime}` : "No activity"}
                   </Typography>
 
-                  <Typography variant="caption" sx={{ opacity: 0.45 }}>
+                  {/* <Typography variant="caption" sx={{ opacity: 0.45 }}>
                     State code: {port.stateCode}
-                  </Typography>
+                  </Typography> */}
                 </Stack>
               </CardContent>
             </Card>

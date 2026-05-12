@@ -192,7 +192,9 @@ function App() {
   }, [errorText, successText]);
 
   const totalPorts = ports.length;
-  const activePorts = ports.filter((p) => p.state === "active").length;
+  // const activePorts = ports.filter((p) => p.state === "connected").length;
+  const activePorts = ports.filter((p) => p.connectionStatus === "connect").length;
+  const inactivePorts = ports.filter((p) => p.connectionStatus === "disconnect").length;
   const portsWithSms = ports.filter((p) => p.smsCount > 0).length;
   const totalMessages = messages.length;
 
@@ -439,6 +441,7 @@ function App() {
             <StatsCards
               totalPorts={totalPorts}
               activePorts={activePorts}
+              inactivePorts={inactivePorts}
               portsWithSms={portsWithSms}
               totalMessages={totalMessages}
             />

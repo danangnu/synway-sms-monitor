@@ -154,18 +154,26 @@ export function buildDashboardPorts(
       .filter((m) => m.queriedPort === portState.port)
       .sort((a, b) => (a.dateTime < b.dateTime ? 1 : -1));
 
-    let state: "active" | "inactive" | "has_sms" = "inactive";
+    // let state: "active" | "inactive" | "has_sms" = "inactive";
 
-    if (portMessages.length > 0) {
-      state = "has_sms";
-    } else if (portState.stateCode !== 0) {
-      state = "active";
-    }
+    // if (portMessages.length > 0) {
+    //   state = "has_sms";
+    // } else if (portState.stateCode !== 0) {
+    //   state = "active";
+    // }
+
+    const connectionStatus =
+      portState.stateCode === 0
+        ? "connect"
+        : "disconnect";
+
+    const hasSms = portMessages.length > 0;
 
     return {
       port: portState.port,
       stateCode: portState.stateCode,
-      state,
+      connectionStatus,
+      hasSms,
       smsCount: portMessages.length,
       lastTime: portMessages[0]?.dateTime
     };

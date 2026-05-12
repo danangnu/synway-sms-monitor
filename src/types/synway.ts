@@ -21,7 +21,8 @@ export type SynwaySmsMessage = {
 
 export type DashboardPortCard = {
   port: number;
-  state: "active" | "inactive" | "has_sms";
+  connectionStatus: "connect" | "disconnect";
+  hasSms: boolean;
   smsCount: number;
   lastTime?: string;
   stateCode: number;

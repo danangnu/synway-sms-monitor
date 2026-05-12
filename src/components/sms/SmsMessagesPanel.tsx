@@ -98,7 +98,7 @@ export default function SmsMessagesPanel({
       {selectedPortFilter !== null && (
         <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
           <Chip
-            label={`Filtered by Port ${selectedPortFilter}`}
+            label={`Filtered by Port ${selectedPortFilter + 1}`}
             color="primary"
             size="small"
           />
@@ -133,7 +133,7 @@ export default function SmsMessagesPanel({
             <Box sx={{ px: 2, py: 3 }}>
               <Typography variant="body2" sx={{ opacity: 0.65 }}>
                 {selectedPortFilter !== null
-                  ? `No messages found for Port ${selectedPortFilter}.`
+                  ? `No messages found for Port ${selectedPortFilter + 1}.`
                   : "No messages found."}
               </Typography>
             </Box>
@@ -160,7 +160,7 @@ export default function SmsMessagesPanel({
               >
                 <Box>
                   <Chip
-                    label={`Port ${msg.queriedPort}`}
+                    label={`Port ${msg.queriedPort + 1}`}
                     size="small"
                     sx={{
                       height: 22,

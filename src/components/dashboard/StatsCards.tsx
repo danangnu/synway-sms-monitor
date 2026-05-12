@@ -3,13 +3,15 @@ import { Avatar, Card, CardContent, Stack, Typography, Box } from "@mui/material
 type StatsCardsProps = {
   totalPorts: number;
   activePorts: number;
+  inactivePorts: number;
   portsWithSms: number;
   totalMessages: number;
 };
 
 const cards = [
   { key: "totalPorts", label: "Total Ports", color: "primary.main" },
-  { key: "activePorts", label: "Active", color: "success.main" },
+  { key: "activePorts", label: "Connect Ports", color: "success.main" },
+  { key: "inactivePorts", label: "Disconnect Ports", color: "error.main" },
   { key: "portsWithSms", label: "Ports With SMS", color: "warning.main" },
   { key: "totalMessages", label: "Total Messages", color: "info.main" }
 ] as const;
@@ -17,12 +19,14 @@ const cards = [
 export default function StatsCards({
   totalPorts,
   activePorts,
+  inactivePorts,
   portsWithSms,
   totalMessages
 }: StatsCardsProps) {
   const values = {
     totalPorts,
     activePorts,
+    inactivePorts,
     portsWithSms,
     totalMessages
   };
